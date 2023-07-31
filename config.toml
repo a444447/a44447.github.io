@@ -2,7 +2,7 @@
 # 站点配置
 
 baseURL = "https://example.com/"
-title = "Hugo 主题 MemE"
+title = "afourseven's blog"
 languageCode = "zh-CN"
 hasCJKLanguage = true
 # 版权信息（支持 Markdown）
@@ -96,17 +96,17 @@ uglyURLs = false
 # 作者信息
 [author]
     # 名字
-    name = "reuixiy"
+    name = "afourseven"
     # 邮箱
-    email = "reuixiy@gmail.com"
+    email = "yafourseven7@gmail.com"
     # 座右铭或简介
-    motto = "Viva La Vida"
+    #motto = "Viva La Vida"
     # 头像
-    avatar = "/icons/apple-touch-icon.png"
+    #avatar = "/icons/apple-touch-icon.png"
     # 网站（默认值：baseURL）
-    website = "https://io-oi.me/"
+    #website = "https://io-oi.me/"
     # 推特
-    twitter = "reuixiy"
+    #twitter = "reuixiy"
 
 # 相关文章
 [related]
@@ -197,7 +197,7 @@ uglyURLs = false
     #     post = "home"
     [[menu.main]]
         pageref = "/posts/"
-        name = "文章"
+        name = "归档"
         weight = 2
         pre = "internal"
         post = "archive"
@@ -309,11 +309,11 @@ uglyURLs = false
     # 3. posts     文章摘要
     # 4. page      普通页面
 
-    homeLayout = "posts"
+    homeLayout = "poetry"
 
     ## 「诗意人生」
     # 诗句，支持 Markdown
-    homePoetry = []
+    homePoetry = ["少年听雨歌楼上，","红烛昏罗帐。","壮年听雨客舟中，","江阔云低，","断雁叫西风。","而今听雨僧庐下，","鬓已星星也。","悲欢离合总无情，一任阶前、点滴到天明。"]
     # 底部链接的内间距，单位：em
     homeLinksPadding = 1
 
@@ -343,7 +343,7 @@ uglyURLs = false
     # 说明：用于 JSON-LD、Open Graph
 
     # 站点的描述
-    siteDescription = "MemE 是一个强大且可高度定制的 GoHugo 博客主题，专为个人博客设计。"
+    siteDescription = "个人博客"
     # 说明：用于 HTML 的头部元数据、JSON-LD、
     #      Open Graph、Atom、RSS
 

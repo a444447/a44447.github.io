@@ -2,7 +2,6 @@
 title: "Write Shortcodes"
 date: 2023-07-30T23:43:33+08:00
 categories: [技术,建站技术]
-draft: true
 ---
 **shortcodes**是hugo中一个很重要内容，短代码是快速使用我们之前预定义的模板的桥梁。hugo中短代码通过来使用。
 

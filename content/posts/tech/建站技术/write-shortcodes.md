@@ -15,17 +15,37 @@ categories: [技术,建站技术]
 
 短代码`mark`
 
+```
+{{</* mark text="这是一个重点标记" */>}}
+```
+
+
+
 {{< mark text="这是一个重点标记" >}}
 
 #### 文本居中
 
 短代码`align`
 
+```
+{{</* align center "文字居中" */>}}
+```
+
+
+
 {{< align center "文字居中" >}}
 
 #### 块引用
 
 短代码`blockquote `
+
+```
+{{</* blockquote author="电影" link="https://irithys.com" title="《寻梦环游记》" */>}}
+死亡不是一切的终点，遗忘才是
+{{</* /blockquote */>}}
+```
+
+
 
 {{< blockquote author="电影" link="https://irithys.com" title="《寻梦环游记》" >}}
 死亡不是一切的终点，遗忘才是
@@ -35,37 +55,52 @@ categories: [技术,建站技术]
 
 短代码`detail`
 
+```
+{{</* detail "点下我呀🎁" */>}}
+对看到这行文字的人报以深切的祝福！🥰
+{{</* /detail */>}}
+```
+
+
+
 {{< detail "点下我呀🎁" >}}
 对看到这行文字的人报以深切的祝福！🥰
 {{< /detail >}}
 
 #### notice
 
+```
+{{</* notice warning */>}}
+这是告诫! 请注意!
+{{</* /notice */>}}
+```
+
 短代码`notice`
 
-{{< notice notice-warning >}}
-我是警告⚠️
+{{< notice warning >}}
+这是告诫! 请注意!
 {{< /notice >}}
 
-{{< notice notice-note >}}
-
-我是提示
-
+{{< notice info >}}
+这是引言
 {{< /notice >}}
 
-{{< notice notice-info >}}
-
-我是info
-
+{{< notice tip >}}
+这是小贴示
 {{< /notice >}}
 
-{{< notice notice-tip >}}
-
-我是tip
-
+{{< notice note >}}
+这是注释
 {{< /notice >}}
 
-这是第一个标签，将 `notice-warning` 分别修改为 `notice-note`、`notice-info`、`notice-tip` 就可以得到其他三个。
 
 
+#### imgcap
 
+```
+{{</* imgcap src="https://w.wallhaven.cc/full/nr/wallhaven-nrq3pq.jpg" title="bird and sea" */>}}
+```
+
+{{< imgcap src="https://w.wallhaven.cc/full/nr/wallhaven-nrq3pq.jpg" title="bird and sea" >}}
+
+其中, `src` 和 `title` 为必填项, `alt` 和 `width` 为选填项, `alt` 默认与 `title` 保持一致, `width` 默认值为: 95% .

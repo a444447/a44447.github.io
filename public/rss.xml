@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+
+
+
+
+
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>afourseven&#39;s blog</title>
+        <link>https://example.com/</link>
+        <description>个人博客</description>
+        <generator>Hugo 0.115.4 https://gohugo.io/</generator>
+        
+            <language>zh-CN</language>
+        
+        
+            <managingEditor>yafourseven7@gmail.com (afourseven)</managingEditor>
+        
+        
+            <webMaster>yafourseven7@gmail.com (afourseven)</webMaster>
+        
+        
+            <copyright>[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh)</copyright>
+        
+        <lastBuildDate>Sun, 26 May 2024 13:37:21 &#43;0800</lastBuildDate>
+        
+            <atom:link rel="self" type="application/rss&#43;xml" href="https://example.com/rss.xml" />
+        
+        
+            <item>
+                <title>Intro</title>
+                <link>https://example.com/posts/algorithm/intro/</link>
+                <guid isPermaLink="true">https://example.com/posts/algorithm/intro/</guid>
+                <pubDate>Sun, 26 May 2024 13:29:47 &#43;0800</pubDate>
+                
+                    <author>yafourseven7@gmail.com (afourseven)</author>
+                
+                <copyright>[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh)</copyright>
+                
+                    <description></description>
+                
+                
+                
+                
+                
+                    
+                        
+                            
+                                
+                                
+                                
+                                    <category domain="https://example.com/categories/%E7%AE%97%E6%B3%95/">算法</category>
+                                
+                            
+                        
+                    
+                        
+                    
+                
+            </item>
+        
+            <item>
+                <title>Write Shortcodes</title>
+                <link>https://example.com/posts/tech/%E5%BB%BA%E7%AB%99%E6%8A%80%E6%9C%AF/write-shortcodes/</link>
+                <guid isPermaLink="true">https://example.com/posts/tech/%E5%BB%BA%E7%AB%99%E6%8A%80%E6%9C%AF/write-shortcodes/</guid>
+                <pubDate>Sun, 30 Jul 2023 23:43:33 &#43;0800</pubDate>
+                
+                    <author>yafourseven7@gmail.com (afourseven)</author>
+                
+                <copyright>[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh)</copyright>
+                
+                    <description>&lt;p&gt;&lt;strong&gt;shortcodes&lt;/strong&gt;是hugo中一个很重要内容，短代码是快速使用我们之前预定义的模板的桥梁。hugo中短代码通过来使用。&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;需要注意的是，我们每个定义的短代码，都需要在根目录的layout/shortcodes/中，创建对应短代码名称的html.比如，我们创建一个名为mark的短代码，那么就需要创建&lt;code&gt;layout/shortcodes/mark.html&lt;/code&gt;&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;h3 id=&#34;部分使用的短代码&#34;&gt;部分使用的短代码&lt;/h3&gt;
+&lt;h4 id=&#34;高亮&#34;&gt;高亮&lt;/h4&gt;
+&lt;p&gt;短代码&lt;code&gt;mark&lt;/code&gt;&lt;/p&gt;
+&lt;mark&gt;这是一个重点标记&lt;/mark&gt;
+&lt;h4 id=&#34;文本居中&#34;&gt;文本居中&lt;/h4&gt;
+&lt;p&gt;短代码&lt;code&gt;align&lt;/code&gt;&lt;/p&gt;
+&lt;p style=&#34;text-align:center&#34;&gt;文字居中&lt;/p&gt;
+
+&lt;h4 id=&#34;块引用&#34;&gt;块引用&lt;/h4&gt;
+&lt;p&gt;短代码&lt;code&gt;blockquote &lt;/code&gt;&lt;/p&gt;
+
+
+
+
+
+
+
+  
+  
+  
+  
+
+
+
+
+
+  
+
+
+&lt;blockquote&gt;
+  &lt;p&gt;死亡不是一切的终点，遗忘才是&lt;/p&gt;
+  &lt;footer style=&#34;text-align:right&#34;&gt;
+    &lt;strong&gt;电影&lt;/strong&gt;
+    
+      
+        &lt;cite&gt;
+          &lt;a href=&#34;https://irithys.com&#34; title=&#34;https://irithys.com&#34; rel=&#34;noopener noreferrer&#34;&gt;《寻梦环游记》&lt;/a&gt; 
+        &lt;/cite&gt;
+      
+    
+  &lt;/footer&gt;
+&lt;/blockquote&gt;
+
+&lt;h4 id=&#34;隐藏&#34;&gt;隐藏&lt;/h4&gt;
+&lt;p&gt;短代码&lt;code&gt;detail&lt;/code&gt;&lt;/p&gt;
+&lt;details&gt;
+    &lt;summary&gt;点下我呀🎁&lt;/summary&gt;
+    对看到这行文字的人报以深切的祝福！🥰
+&lt;/details&gt;
+
+&lt;h4 id=&#34;notice&#34;&gt;notice&lt;/h4&gt;
+&lt;p&gt;短代码&lt;code&gt;notice&lt;/code&gt;&lt;/p&gt;
+
+&lt;div class=&#34;notice notice-warning&#34; &gt;
+    &lt;div class=&#34;notice-title&#34;&gt;&lt;svg xmlns=&#34;http://www.w3.org/2000/svg&#34; class=&#34;icon notice-icon&#34; viewBox=&#34;0 0 576 512&#34; fill=&#34;hsl(0, 65%, 65%)&#34;&gt;&lt;path d=&#34;M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zM124 296c-6.6.0-12-5.4-12-12v-56c0-6.6 5.4-12 12-12h264c6.6.0 12 5.4 12 12v56c0 6.6-5.4 12-12 12H124z&#34;/&gt;&lt;/svg&gt;&lt;/div&gt;&lt;p&gt;我是警告⚠️&lt;/p&gt;&lt;/div&gt;
+
+
+&lt;div class=&#34;notice notice-note&#34; &gt;
+    &lt;div class=&#34;notice-title&#34;&gt;&lt;svg xmlns=&#34;http://www.w3.org/2000/svg&#34; class=&#34;icon notice-icon&#34; viewBox=&#34;0 0 512 512&#34; fill=&#34;hsl(200, 65%, 65%)&#34;&gt;&lt;path d=&#34;M504 256a248 248 0 11-496 0 248 248 0 01496 0zm-248 50a46 46 0 100 92 46 46 0 000-92zm-44-165l8 136c0 6 5 11 12 11h48c7 0 12-5 12-11l8-136c0-7-5-13-12-13h-64c-7 0-12 6-12 13z&#34;/&gt;&lt;/svg&gt;&lt;/div&gt;&lt;p&gt;我是提示&lt;/p&gt;&lt;/div&gt;
+
+
+&lt;div class=&#34;notice notice-info&#34; &gt;
+    &lt;div class=&#34;notice-title&#34;&gt;&lt;svg xmlns=&#34;http://www.w3.org/2000/svg&#34; class=&#34;icon notice-icon&#34; viewBox=&#34;0 0 512 512&#34; fill=&#34;hsl(30, 80%, 70%)&#34;&gt;&lt;path d=&#34;M256 8a248 248 0 100 496 248 248 0 000-496zm0 110a42 42 0 110 84 42 42 0 010-84zm56 254c0 7-5 12-12 12h-88c-7 0-12-5-12-12v-24c0-7 5-12 12-12h12v-64h-12c-7 0-12-5-12-12v-24c0-7 5-12 12-12h64c7 0 12 5 12 12v100h12c7 0 12 5 12 12v24z&#34;/&gt;&lt;/svg&gt;&lt;/div&gt;&lt;p&gt;我是info&lt;/p&gt;&lt;/div&gt;
+
+
+&lt;div class=&#34;notice notice-tip&#34; &gt;
+    &lt;div class=&#34;notice-title&#34;&gt;&lt;svg xmlns=&#34;http://www.w3.org/2000/svg&#34; class=&#34;icon notice-icon&#34; viewBox=&#34;0 0 512 512&#34; fill=&#34;hsl(140, 65%, 65%)&#34;&gt;&lt;path d=&#34;M504 256a248 248 0 11-496 0 248 248 0 01496 0zM227 387l184-184c7-6 7-16 0-22l-22-23c-7-6-17-6-23 0L216 308l-70-70c-6-6-16-6-23 0l-22 23c-7 6-7 16 0 22l104 104c6 7 16 7 22 0z&#34;/&gt;&lt;/svg&gt;&lt;/div&gt;&lt;p&gt;我是tip&lt;/p&gt;&lt;/div&gt;
+
+&lt;p&gt;这是第一个标签，将 &lt;code&gt;notice-warning&lt;/code&gt; 分别修改为 &lt;code&gt;notice-note&lt;/code&gt;、&lt;code&gt;notice-info&lt;/code&gt;、&lt;code&gt;notice-tip&lt;/code&gt; 就可以得到其他三个。&lt;/p&gt;
+</description>
+                
+                
+                
+                
+                
+                    
+                        
+                            
+                                
+                                
+                                
+                                    <category domain="https://example.com/categories/%E6%8A%80%E6%9C%AF/">技术</category>
+                                
+                            
+                                
+                                
+                                
+                                    <category domain="https://example.com/categories/%E5%BB%BA%E7%AB%99%E6%8A%80%E6%9C%AF/">建站技术</category>
+                                
+                            
+                        
+                    
+                        
+                    
+                
+            </item>
+        
+            <item>
+                <title>Go Map</title>
+                <link>https://example.com/posts/tech/golang/go-map/</link>
+                <guid isPermaLink="true">https://example.com/posts/tech/golang/go-map/</guid>
+                <pubDate>Sun, 30 Jul 2023 19:39:11 &#43;0800</pubDate>
+                
+                    <author>yafourseven7@gmail.com (afourseven)</author>
+                
+                <copyright>[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh)</copyright>
+                
+                    <description></description>
+                
+                
+                
+                
+                
+                    
+                        
+                            
+                                
+                                
+                                
+                                    <category domain="https://example.com/categories/%E6%8A%80%E6%9C%AF/">技术</category>
+                                
+                            
+                                
+                                
+                                
+                                    <category domain="https://example.com/categories/golang/">golang</category>
+                                
+                            
+                        
+                    
+                        
+                    
+                
+            </item>
+        
+    </channel>
+</rss>

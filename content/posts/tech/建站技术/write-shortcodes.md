@@ -103,4 +103,4 @@ categories: [技术,建站技术]
 
 {{< imgcap src="https://w.wallhaven.cc/full/nr/wallhaven-nrq3pq.jpg" title="bird and sea" >}}
 
-其中, `src` 和 `title` 为必填项, `alt` 和 `width` 为选填项, `alt` 默认与 `title` 保持一致, `width` 默认值为: 95% .
+其中, `src` 和 `title` 为必填项, `alt` 和 `width` 为选填项, `alt` 默认与 `title` 保持一致, `width` 默认值为: 95% .	

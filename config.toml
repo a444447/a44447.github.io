@@ -1247,13 +1247,13 @@ uglyURLs = false
     # 页脚
 
     # 是否开启
-    enableFooter = true
+    enableFooter = false
 
     # 是否显示
-    displayFooter = true
+    displayFooter = false
 
     # 是否在首页显示
-    displayFooterInHome = true
+    displayFooterInHome = false
 
     displayCopyleftSymbol = false
     # 是否显示版权符号（©）
@@ -1267,16 +1267,16 @@ uglyURLs = false
     # 图标颜色
     iconColor = "#f06292"
     # 是否开启图标的跳动效果
-    iconAnimation = true
+    iconAnimation = false
 
     # 是否显示站点的作者名称
-    displaySiteAuthorName = true
+    displaySiteAuthorName = false
 
     # 是否显示 Hugo 和 MemE 的链接
-    displayPoweredBy = true
+    displayPoweredBy = false
 
     # 是否显示站点的版权信息
-    displaySiteCopyright = true
+    displaySiteCopyright = false
 
     # 自定义页脚（支持 Markdown）
     customFooter = ""

@@ -66,3 +66,46 @@ add_executable(cmake_test main.cc)
 ---
 
 cmake的编译选项
+
+
+
+## 具体应用
+
+### 搜索文件
+
+当一个项目中源文件很多的时候，我们不可能将项目目录的所有文件一个一个列出来，因此cmake提供了两种方式让我们搜索文件,`aux_source_directory`与`file`
+
+1. **方式一**
+
+```cmake
+aux_source_directory(dir variable)
+```
+
++ dir: 是要搜索的目录
++ variable: 将`dir`中目录搜索到的源文件列表存储到该变量中
+
+```cmake
+# 搜索 src 目录下的源文件
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/src SRC_LIST)
+add_executable(app  ${SRC_LIST})
+```
+
+2. **方式二**
+
+```cmake
+file(GLOB/GLOB_RECURSE 变量名 要搜索的文件路径和文件类型)
+```
+
+GLOB/GLOB_RECURSE表示两种搜索的模式:
+
++ GLOB：将指定目录下搜索到的满足条件的所有文件名生成一个列表，并将其存储到变量中。
+
++ GLOB_RECURSE： 递归搜索指定目录，将搜索到的满足条件的文件名生成一个列表，并将其存储到变量中。
+
+```cmake
+file(GLOB MAIN_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
+file(GLOB MAIN_HEAD ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h)
+```
+
+`要搜索的文件路径和文件类型`这个部分是可以加引号`“${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp”`，也可以不加`${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp`
+

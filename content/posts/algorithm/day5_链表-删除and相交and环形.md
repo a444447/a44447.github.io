@@ -1,7 +1,7 @@
 ---
 title: "Day5_链表 删除and相交and环形"
 date: 2024-06-04T15:25:27+08:00
-draft: true
+categories: [算法]
 ---
 
 ##  删除链表的倒数第N个节点

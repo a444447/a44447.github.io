@@ -200,7 +200,7 @@ bool isHappy(int n) {
 
 这个题也可以使用 **哈希表**的思路
 
-{{< notice notice >}}
+{{< notice note >}}
 
 当我们需要记录一个元素是否已经出现过的时候，就可以想到哈希表的方法
 

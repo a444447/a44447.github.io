@@ -62,10 +62,8 @@ categories: [算法]
 另一种做法是使用`unordered_set`。
 
 {{< notice info >}}
-
 unordered_set会维护一个哈希表，它并不对数据进行排序，但是会对进去其中的数据自动进行去重操作。
-
-{< /notice >}
+{{< /notice >}}
 
 ### 代码
 
@@ -201,9 +199,7 @@ bool isHappy(int n) {
 这个题也可以使用 **哈希表**的思路
 
 {{< notice note >}}
-
 当我们需要记录一个元素是否已经出现过的时候，就可以想到哈希表的方法
-
 {{< /notice >}}
 
 这里我们不能使用`set`，因为set只能记录`key`，而现在题目中我们除了要记录元素`x`是否出现过之外，还需要记录`index of x`,因此选择`unordered_map`

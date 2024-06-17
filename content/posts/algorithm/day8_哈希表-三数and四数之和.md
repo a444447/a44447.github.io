@@ -1,7 +1,7 @@
 ---
 title: "Day8_哈希表 三数and四数之和"
 date: 2024-06-16T10:29:46+08:00
-draft: true
+categories: [算法]
 ---
 
 ## 三数之和

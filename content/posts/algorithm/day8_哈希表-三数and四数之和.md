@@ -6,7 +6,7 @@ categories: [算法]
 
 ## 三数之和
 
-{{< blockquote author="力扣15" link="https://leetcode.cn/problems/3sum/" title=三数之和">}}
+{{< blockquote author="力扣15" link="https://leetcode.cn/problems/3sum/" title=三数之和" >}}
 
 给你一个整数数组 `nums` ，判断是否存在三元组 `[nums[i], nums[j], nums[k]]` 满足 `i != j`、`i != k` 且 `j != k` ，同时还满足 `nums[i] + nums[j] + nums[k] == 0` 。请
 
@@ -109,7 +109,7 @@ nums[0] + nums[3] + nums[4] = (-1) + 2 + (-1) = 0 。
 
 ## 四数之和
 
-{{< blockquote author="力扣18" link="https://leetcode.cn/problems/4sum/" title=四数之和">}}
+{{< blockquote author="力扣18" link="https://leetcode.cn/problems/4sum/" title=四数之和" >}}
 
 给你一个由 `n` 个整数组成的数组 `nums` ，和一个目标值 `target` 。请你找出并返回满足下述全部条件且**不重复**的四元组 `[nums[a], nums[b], nums[c], nums[d]]` （若两个四元组元素一一对应，则认为两个四元组重复）：
 

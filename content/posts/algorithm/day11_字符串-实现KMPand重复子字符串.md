@@ -97,7 +97,57 @@ KMP算法对于前缀表或者说next数组的表示有两种方法
 + next数组=前缀表
 + next数组=**前缀表统一减一（右移一位，初始位置为-1）。**
 
+---
 
+首先以 **前缀表**来讲解如何构建next数组。
+
+![img](https://obsdian-1304266993.cos.ap-chongqing.myqcloud.com/typora/2174350-20201010221728853-1683608557.png)
+
+看上面的例子，next[8]是多少？对于求解next[8]，我们只需要nexrt[7]与array[8]就可以了,next[8]表示的是array[0-7]的最长前后缀长度：**我们通过next[7]可以找到包括该位置的之前字符串( 不包括该位置)的最长前后缀长度是多少，我们只需要讨论的是array[next[7]]与array[7]是否相等**，如果相等则next[8] = next[7]+1;
+
+如果不相等就需要进入一个递归的过程：
+
+![img](https://obsdian-1304266993.cos.ap-chongqing.myqcloud.com/typora/2174350-20201010230822374-1301464430.png)
+
+比如求next[10]，因为array[next[9]] != array[9]，所以我们需要做的就是尝试查询 **更短的相同前后缀**，这个更短的相同前后缀该如何得到？自然就是next[next[9]]，直到array[next[next...next[9]]] = array[9]。 *如果总是找不到怎么办？由于next[0]=0,所以如果当回退到next[0]还是没有满足，递归就会一直进行，这里就可以设置条件退出递归。**也可以将next[0]=-1，自然检查到-1就必要继续嵌套了***
+
+所以也就出现了**前缀表统一减一（右移一位，初始位置为-1**的next数组表示方法
+
+### 代码
+
+```c++
+//前缀表统一减1
+void getNext(int *next, const string &s)
+{
+    int j = -1;
+    next[0] = j;
+    for(int i = 1; i < s.size(); i++) {
+        while(j >= 0 && s[i] != s[j + 1]) {
+            j = next[j];
+        }
+        if (s[i] == s[j + 1]) {
+            j++;
+        }
+        next[i] = j;
+    }
+}
+//使用next数组进行模式匹配
+int j = -1; // 因为next数组里记录的起始位置为-1
+for (int i = 0; i < s.size(); i++) { // 注意i就从0开始
+    while(j >= 0 && s[i] != t[j + 1]) { // 不匹配
+        j = next[j]; // j 寻找之前匹配的位置
+    }
+    if (s[i] == t[j + 1]) { // 匹配，j和i同时向后移动
+        j++; // i的增加在for循环里
+    }
+    if (j == (t.size() - 1) ) { // 文本串s里出现了模式串t
+        return (i - t.size() + 1);
+    }
+}
+```
+
+- 时间复杂度: O(n + m)
+- 空间复杂度: O(m), 只需要保存字符串needle的前缀表
 
 ## 重复的子字符串
 
@@ -105,7 +155,7 @@ KMP算法对于前缀表或者说next数组的表示有两种方法
 
 给定一个非空的字符串 `s` ，检查是否可以通过由它的一个子串重复多次构成。
 
- 
+
 
 **示例 1:**
 
@@ -140,3 +190,32 @@ KMP算法对于前缀表或者说next数组的表示有两种方法
 - `s` 由小写英文字母组成
 
 {{< /blockquote >}}
+
+---
+
+此问题第一种想法是,如果一个字符串s是由它的一个子串重复多次构成的,那么把两个字符串拼在一起`s+s`,那么这个拼接字符串中一定有找得到一个字符串s.
+
+当然，我们在判断 s + s 拼接的字符串里是否出现一个s的的时候，**要刨除 s + s 的首字符和尾字符**，这样避免在s+s中搜索出原来的s，我们要搜索的是中间拼接出来的s。
+
+---
+
+另一种做法是kmp.==TODO还没有看懂==
+
+### 代码
+
+```c++
+bool repeatedSubstringPattern(string s) {
+        string new_s {s + s};
+        new_s.erase(new_s.begin());
+        new_s.erase(new_s.end() - 1);
+        if (new_s.find(s) != std::string::npos) return true;
+        return false;
+    }
+```
+
+- 时间复杂度: O(n)
+- 空间复杂度: O(1)
+
+注意find的过程可能包括了我们之前提到的kmp方法.
+
+> npos是一个常数，表示size_t的最大值（Maximum value for size_t）。许多容器都提供这个东西，用来表示不存在的位置.

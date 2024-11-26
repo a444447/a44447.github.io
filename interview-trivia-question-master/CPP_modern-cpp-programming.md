@@ -178,6 +178,15 @@ int &j = i;
 auto m = j; // auto推导类型为int，而非int&
 ```
 
+另外如何是一个右值(&&),auto也不会推断
+
+```c++
+int&& getx();
+
+auto ax = getx(); //ax是int，而不是int&&，如果要得到int&&类型，使用decltype(auto)
+//注意，即使是auto*/auto& 也只是推断的时候保留*与&的性质，而对于右值&&并不会保留。
+```
+
 
 
 ## decltype关键字

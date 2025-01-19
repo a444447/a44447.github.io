@@ -178,7 +178,7 @@ int &j = i;
 auto m = j; // auto推导类型为int，而非int&
 ```
 
-另外如何是一个右值(&&),auto也不会推断
+另外如果是一个右值(&&),auto也不会推断
 
 ```c++
 int&& getx();
@@ -380,7 +380,8 @@ decltype(auto)*x5d = &i; // 编译失败，decltype(auto)必须单独声明
 #include <string>
 class X {
 public:
-	static std::string text;
+	static std::string text; //c++17以前，如果你想在声明的时候定义这个非常量静态变量是不行的
+  //static std::string text {"hello"}; 错误
 };
 std::string X::text{ "hello" };
 int main()
@@ -580,6 +581,16 @@ struct test
 ```
 
 首先根据规则1：d应该对齐在8字节地址，c的偏移地址为0且占1字节，其后需要填充7byte，i的对齐字节为4，刚好i的偏移在4的整数倍故d后面不需要填充，此时共计：`1+7+8+4 = 20 Byte`，结构体的大小应该是最大元素double（8字节）的整数倍，故需要在i后面添加4字节，最终结构体大小为24字节。
+
+>  总结一下:
+>
+> + 对齐值一般指的是该类型的大小。
+>
+> + 结构体中的成员变量的初始地址需要是对齐值的整数倍
+> + 整个结构体的大小必须是 **最大对齐值**的大小。
+> + 所以，为了符合以上要求，编译器可能会在成员间/结构体末尾插入额外填充字节。
+
+
 
 
 

@@ -30,14 +30,243 @@ static std::string IdentifierStr;
 >
 > ```c++
 > while(isspace(LastChar))
->   	Lastchar = getchar();
+> 	Lastchar = getchar();
 > ```
 >
 > 为了让这个while能够保证执行，我们定义`static int LastChar = ' ';`
+>
+> 然后就进入判断阶段，通过
+>
+> ```c++
+> if(isalpha)
+>     IdentifierStr = LastChar;
+>     while(isalnum(LastChar = getchar()))
+>         IdentifierStr += LastChar;
+> ```
+>
+> 
+>
+> 来获得一个完整的`IdentifierStr`，然后判断它的token类型。
+>
+> ---
+>
+> 如果是`if (isdigit(LastChar) || LastChar == '.')`就进入读取number的环节
+>
+> ---
+>
+> 当读取到`LastChar='#'`的时候我们要以注释处理，也就是不返回token类型
+>
+> ```c++
+> if (LastChar == '#') {
+>     // Comment until end of line.
+>     do
+>       LastChar = getchar();
+>     while (LastChar != EOF && LastChar != '\n' && LastChar != '\r');
+> 
+>     if (LastChar != EOF)
+>       return gettok();
+>   }
+> ```
+>
+> ---
+>
+> 其余的情况，直接将该字符的ascii码返回.
+>
+> ```c++
+> int TheChar = LastChar;
+> LastChar = getchar();
+> return TheChar;
+> ```
 
 
 
+## AST
 
+AST(抽象语法树)的核心思想是用树状的结构表示源代码语法结构。它不包含 **某个语言的具体细节**，它树上的每个节点都表示的源代码中的某个结构。
+
+![img](./assets/400px-Abstract_syntax_tree_for_Euclidean_algorithm.svg-1737342954906-4.png)
+
+```c++
+while b ≠ 0:
+    if a > b:
+        a := a - b
+    else:
+        b := b - a
+return a
+```
+
+---
+
++ 在Kaleidoscope语言中，表达式（expression）、原型（prototype）和函数（function）分别对应不同的输入形式。以下是每种形式的输入及其示例：
+
+  1. **表达式（Expression）**： 表达式是Kaleidoscope中的基本计算单元，可以是数字、变量、二元运算符等。例如：
+
+     ```
+     1 + 2 * (3 - 4)
+     ```
+
+  2. **原型（Prototype）**： 原型定义了函数的签名，包括函数名和参数列表，但不包含函数体。例如：
+
+     ```
+     def foo(x y)
+     ```
+
+  3. **函数（Function）**： 函数包含了原型和函数体，定义了具体的计算逻辑。例如：
+
+     ```
+     def foo(x y)
+      x + y;
+     ```
+
+### expression AST
+
+首先我们定义一个base class
+
+```
+class ExprAST {
+public:
+	virtual ~ExprAST() = default;
+	virtual Value* codegen() = 0;
+};
+```
+
+然后我们还需要定义表示数值的`NumberExprAST`，`VariableExprAST`、`UnaryExprAST`、`BinaryExprAST`、`CallExprAST`、`IfExprAST`、`ForExprAST`、`VarExprAST`、`PrototypeAST`、`FunctionAST`
+
+---
+
+当定义完这些后，我们需要做的就是实现一个`parser`，作用是把用户输入的源代码转换为AST。
+
+我们首先定义一个函数原型`ParseExpression`，它是决定如何解析表达式的上层函数，我们后面来实现。
+
+```c++
+static std::unique_ptr<ExprAST> ParseExpression();
+```
+
+现在最简单的就是实现解析`NumberAST`
+
+```c++
+static std::unique_ptr<ExprAST> ParseNumberExpr()
+{
+  auto Result = std::make_unique<NumberExprAST>(NumVal);
+  getNextToken(); // consume the number
+  return std::move(Result);
+}
+```
+
+> 注意我们返回的是类的指针，并且使用了**移动语义**
+
+对于括号表达式`(expr)`，我们的处理需要吃掉左右括号，然后执行`ParseParenExpr`这个上层决策。
+
+下面来看看如何解析标识符：
+
++ 单独的identifier
++ identifier()，这种就是函数调用节点
+
+```c++
+static static std::unique_ptr<ExprAST> ParseIdentifierExpr()
+{
+    std::string IdName = IdentifierStr;
+    getNextToken(); //eat identifier
+    
+    if (CurTok != '(')
+        return std::make_unique<VariableExprAST>(IdName);
+    getNextToken(); //eat (
+    std::vector<std::unique_ptr<ExprAST>> Args;
+    if (CurTok != ')') {
+        while(true) {
+            if (auto Arg = ParseExpression())
+                Args.push_back(std::move(Arg));
+            else
+                return nullptr;
+            if (CurTok == ')')
+                break;
+            if (CurTok != ',')
+        		return LogError("Expected ')' or ',' in argument list");
+        }
+    }
+    getNextToken();
+    return std::make_unique<CallExprAST>(IdName, std::move(Args));
+}
+```
+
+---
+
+现在来看看运算符表达式怎么解析，包括了二元运算、单目运算、自定义运算。
+
+首先来看二元运算与单目运算。为了实现，我们采取的递归下降解析方式，**利用递归函数解析表达式，然后根据优先级控制解析的顺序。**
+
+所以，我们首先就是定义了一个全局的运算符优先级映射表:
+
+```c++
+std::map<char,int> BinopPrecedence;
+BinopPrecedence['<'] = 10;
+BinopPrecedence['+'] = 20;
+BinopPrecedence['-'] = 20;
+BinopPrecedence['*'] = 40;  // highest.
+```
+
+注意，如果`CurTok`不是一个ascii，也就是它不是一个合格的运算符，返回的是-1。
+
+现在进入流程
+
+```
+1.假设当前解析到表达式，比如a+(b+c)，现在解析到a,它作为左操作数LHS
+2.之后进入解析右侧表达式的函数中，它会检测当前操作符的优先级是否低于上一层，如果低于、或者没有操作符，直接返回。
+3.递归解析右侧表达式，如果当前操作符的优先级低于栈顶操作符，则将栈顶操作符和其右操作数合并。
+```
+
+```c++
+```
+
+---
+
+我们定义一个叫做`ParsePrimary`的函数来作为之前的Parse函数的入口点
+
+```c++
+/// primary
+///   ::= identifierexpr
+///   ::= numberexpr
+///   ::= parenexpr
+static std::unique_ptr<ExprAST> ParsePrimary() {
+  switch (CurTok) {
+  default:
+    return LogError("unknown token when expecting an expression");
+  case tok_identifier:
+    return ParseIdentifierExpr();
+  case tok_number:
+    return ParseNumberExpr();
+  case '(':
+    return ParseParenExpr();
+  }
+}
+```
+
+---
+
+我们完成了 **expression**的解析，现在是`prototype`和`function`了。
+
+**prototype**
+
+原型是十分直接的，一般原型是这样的`func(x y)`,于是我们解析就是先吃掉identifier,再吃掉`(`，然后逐一记录`Args`,最后吃掉`)`
+
+```c++
+static std::unique_ptr<PrototypeAST> ParsePrototype() 
+{
+    if (CurTok != tok_identifier)
+        return LogErrorP("Expected function name in prototype");
+    std::string FnName = IdentifierStr;
+    getNextToken();
+    if (CurTok != '(')
+        return LogErrorP("Expected '(' in prototype");
+   	std::vector<std::string> ArgNames;
+     while (getNextToken() == tok_identifier)
+    ArgNames.push_back(IdentifierStr);
+  	if (CurTok != ')')
+    	return LogErrorP("Expected ')' in prototype");
+    getNextToken();
+    return std::make_unique<PrototypeAST>(FnName, std::move(ArgNames));
+}
+```
 
 
 
@@ -270,4 +499,87 @@ LLVM IR 是一种非常灵活的**中间表示 (Intermediate Representation**)�
 > + JIT生成机器码并执行。
 
 ## Control Flow
+
+为了扩展kaleidoscope支持控制流，我们首先扩展枚举类
+
+```c++
+tok_if = -6,
+tok_then = -7,
+tok_else = -8
+```
+
+同样，在get token的函数中也要扩展
+
+```c++
+if (IdentifierStr == "def")
+  return tok_def;
+if (IdentifierStr == "extern")
+  return tok_extern;
+if (IdentifierStr == "if")
+  return tok_if;
+if (IdentifierStr == "then")
+  return tok_then;
+if (IdentifierStr == "else")
+  return tok_else;
+return tok_identifier;
+```
+
+之后就是创建新的 AST expression节点，比如`IfExprAST`,`ForExprAST`。
+
+---
+
+**If IR**
+
+首先来看如果是对于条件表达式，如何生成它的中间代码。
+
+比如下面的代码:
+```
+extern foo();
+extern bar();
+def baz(x) if x then foo() else bar();
+```
+
+他的中间代码就像这样:
+```
+declare double @foo()
+
+declare double @bar()
+
+define double @baz(double %x) {
+entry:
+  %ifcond = fcmp one double %x, 0.000000e+00
+  br i1 %ifcond, label %then, label %else
+
+then:       ; preds = %entry
+  %calltmp = call double @foo()
+  br label %ifcont
+
+else:       ; preds = %entry
+  %calltmp1 = call double @bar()
+  br label %ifcont
+
+ifcont:     ; preds = %else, %then
+  %iftmp = phi double [ %calltmp, %then ], [ %calltmp1, %else ]
+  ret double %iftmp
+}
+```
+
+稍微解释一下这个部分：
+
+`entry`块负责计算条件表达式，比如这个例子中就是把表达式的结果(这里就是`x`)，然后使用`fcmp one`指令与`0.0`比较，根据比较结果跳转到`then`或者`else`块。注意`br`指令表示跳转到哪个`block`。
+
+一旦`then`或者`else`执行完毕，就会跳转回`ifcont`块，执行`if/else/then`之后的语句。现在一个问题是，代码如何知道返回哪个表达式结果呢？
+
+在SSA中，一个重要的操作就是:**Phi操作**。`Phi`操作会根据输入的控制块选择相应的值
+
+```
+%iftmp = phi double [ %calltmp, %then ], [ %calltmp1, %else ]
+```
+
+如果来自then block，那么会返回calltmp;反之则是calltmp1.
+
+```c++
+//具体的实现
+
+```
 

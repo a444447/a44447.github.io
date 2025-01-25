@@ -580,6 +580,218 @@ ifcont:     ; preds = %else, %then
 
 ```c++
 //具体的实现
+//首先我们解析条件表达式，比如if expr then xx else xxyyy中的expr
+Value* CondV = Cond->codegen();
+if (!CondV)
+  	return nullptr;
+//创建entry块中的比较指令
+CondV = Builder->CreateFCmpONECondV, ConstantFP::get(*TheContext, APFloat(0.0)), "ifcond");
 
+//获得当前正在构建的Function对象，因为我们要知道我们的if/then/else结构插入到哪里
+Function* TheFunction = Builder->GetInsertBlock()->getParent();
+//创建三个basic block表示then else ifcont，其中then直接插入到获得的TheFunction末尾，其他的else ifcont展示不插入
+BasicBlock* ThenBB = BaiscBlock::Create(*TheContext, "then", TheFunction);
+BasicBlock *ElseBB = BasicBlock::Create(*TheContext, "else");
+BasicBlock *MergeBB = BasicBlock::Create(*TheContext, "ifcont");
+//负责生成条件分支指令，根据CondV决定走向哪个块。注意创建新的块不会自动更改 IRBuilder 的插入点，因此它仍然在条件表达式所在的块中插入指令。同时，它生成了指向 then 和 else 块的分支，即使 else 块尚未插入函数中。这是 LLVM 支持前向引用的标准做法。
+Builder->CreateCondBr(CondV, ThenBB, ElseBB);
+
+//现在开始生成then块分支的代码
+Builder->SetInsertPoint(ThenBB);
+Value* ThenV = Then->codegen();
+
+if (!ThenV)
+  return nullptr;
+//跳向ifcont块
+Builder->CreateBr(MergeBB);
+
+//在then块中，也许还有if/then/else这样的嵌套结构，于是为了让块的指向正确，我们重新更新
+ThenBB = Builder->GetInsertBlock();
+
+//现在生成else块代码，基本相同
+TheFunction->insert(TheFunction->end(), ElseBB);
+Builder->SetInsertPoint(ElseBB);
+
+Value *ElseV = Else->codegen();
+if (!ElseV)
+  return nullptr;
+
+Builder->CreateBr(MergeBB);
+// 'Else' 代码生成可能更改当前块，因此更新 ElseBB 以供 PHI 节点使用。
+ElseBB = Builder->GetInsertBlock();
+
+//生成ifcont块代码
+// 生成 merge 合并块
+TheFunction->insert(TheFunction->end(), MergeBB);
+Builder->SetInsertPoint(MergeBB);
+//设置PHI节点，2表示 PHI 节点最多有两个前驱块（then 和 else 分支）,Type::getDoubleTy(*TheContext)：表示 PHI 节点的类型为 double
+PHINode *PN =
+    Builder->CreatePHI(Type::getDoubleTy(*TheContext), 2, "iftmp");
+
+PN->addIncoming(ThenV, ThenBB);
+PN->addIncoming(ElseV, ElseBB);
+return PN;
 ```
 
+---
+
+**for IR**
+
+我们希望生成的IR大致类似这样
+
+```
+declare double @putchard(double)
+
+define double @printstar(double %n) {
+entry:
+  ; initial value = 1.0 (inlined into phi)
+  br label %loop
+
+loop:       ; preds = %loop, %entry
+  %i = phi double [ 1.000000e+00, %entry ], [ %nextvar, %loop ]
+  ; body
+  %calltmp = call double @putchard(double 4.200000e+01)
+  ; increment
+  %nextvar = fadd double %i, 1.000000e+00
+
+  ; termination test
+  %cmptmp = fcmp ult double %i, %n
+  %booltmp = uitofp i1 %cmptmp to double
+  %loopcond = fcmp one double %booltmp, 0.000000e+00
+  br i1 %loopcond, label %loop, label %afterloop
+
+afterloop:      ; preds = %loop
+  ; loop always returns 0.0
+  ret double 0.000000e+00
+}
+```
+
+我们逐步分析
+
+```c++
+//首先生成循环起点值，比如 for i=0中的0
+
+//记录一个当前插入点所在的基本块，作为循环前置块
+//创建一个loop块表示循环体入口
+Function *TheFunction = Builder->GetInsertBlock()->getParent();
+BasicBlock *PreheaderBB = Builder->GetInsertBlock();
+BasicBlock *LoopBB = BasicBlock::Create(*TheContext, "loop", TheFunction);
+
+Builder->CreateBr(LoopBB);
+Builder->SetInsertPoint(LoopBB);
+
+//创建一个PHI节点，意思是如果是第一次进入，那么variable的值就是初始值
+//如果是循环体再次运行到这里，那么值就是循环体内更新的值
+PHINode *Variable = Builder->CreatePHI(Type::getDoubleTy(*TheContext), 2, VarName);
+Variable->addIncoming(StartVal, PreheaderBB);
+//如果变量 VarName 已存在于符号表中（例如，外层作用域），保存其旧值。
+Value *OldVal = NamedValues[VarName];
+NamedValues[VarName] = Variable;
+
+//生成循环体代码
+if (!Body->codegen())
+  return nullptr;
+//生成步长值
+Value *StepVal = nullptr;
+if (Step) {
+    StepVal = Step->codegen();
+    if (!StepVal)
+        return nullptr;
+} else {
+    StepVal = ConstantFP::get(*TheContext, APFloat(1.0));
+}
+Value *NextVar = Builder->CreateFAdd(Variable, StepVal, "nextvar");
+
+//计算终止条件
+Value *EndCond = End->codegen();
+if (!EndCond)
+    return nullptr;
+
+EndCond = Builder->CreateFCmpONE(
+    EndCond, ConstantFP::get(*TheContext, APFloat(0.0)), "loopcond");
+
+BasicBlock *LoopEndBB = Builder->GetInsertBlock();
+BasicBlock *AfterBB = BasicBlock::Create(*TheContext, "afterloop", TheFunction);
+
+Builder->CreateCondBr(EndCond, LoopBB, AfterBB);
+Builder->SetInsertPoint(AfterBB);
+//下次执行完后跳回到循环头的块
+Variable->addIncoming(NextVar, LoopEndBB);
+
+if (OldVal)
+    NamedValues[VarName] = OldVal;
+else
+    NamedValues.erase(VarName);
+
+return Constant::getNullValue(Type::getDoubleTy(*TheContext));
+```
+
+
+
+## 可变变量设计
+
+在之前的方案中，我们的IR以SSA形式存在，SSA是静态单赋值，意味着每个变量只能有一个值，无法像其他语言那样重新赋值——要想重新赋值只能重新执行这部分代码。
+
+对于下面形式的代码:
+
+```
+int G, H;
+int test(_Bool Condition) {
+  int X;
+  if (Condition)
+    X = G;
+  else
+    X = H;
+  return X;
+}
+```
+
+如果是LLVM IR格式
+
+```c++
+entry:
+  br i1 %Condition, label %cond_true, label %cond_false
+
+cond_true:
+  %X.0 = load i32, i32* @G
+  br label %cond_next
+
+cond_false:
+  %X.1 = load i32, i32* @H
+  br label %cond_next
+
+cond_next:
+  %X.2 = phi i32 [ %X.1, %cond_false ], [ %X.0, %cond_true ]
+  ret i32 %X.2
+```
+
+可以看到`X`的名称实际是`X.1`,`X.2`...。可以看到，在return语句之前X可能存在两种值，最终依靠PHI来合并。问题是，这个PHI节点谁负责插入？
+
+>
+>
+>+ LLVM要求所有输入的IR已经是SSA形式，但生成SSA形式涉及到复杂的算法和数据结构。
+>
+>+ 如果LLVM的前端编译器（比如你实现的语言编译器）需要自己完成SSA形式的构建，那每个前端都需要重复实现这套逻辑，既复杂又低效。
+>
+>+ 所以，问题在于：**前端编译器是否真的需要自己构建SSA形式，或者是否可以依赖LLVM来自动处理这一过程？**
+
+LLVM实际上提供了一系列高度优化工具，自动完成SSA构建，我们自己搭建的前段编译器并不需要手动插入PHI节点。
+
+---
+
+LLVM中，要求所有寄存器值必须以SSA形式存在，但是不要求内存对象以SSA形式存在。因此一个思路是： **为函数中的每个可变对象创建一个栈变量（栈变量存储在内存中，因为它位于栈上）**
+
+LLVM中，访问内存的操作通过`load`与`store`指令完成。
+
+> LLVM精心设计地避免使用（或需要）“地址取值”运算符。注意全局变量`@G`和`@H`的类型实际上是`i32*`，尽管它们定义为`i32`。这意味着`@G`在全局数据区域中分配了一个`i32`的存储空间，但它的名称实际上引用了该空间的地址。栈变量的工作方式与此相同
+
+通过从栈里面读取变量避免了使用PHI节点，但是引入了性能问题——显然我们加入了大量的栈访问。LLVM优化器中有一个高度优化的"mem2reg"优化过程。`mem2reg`可以将像这样的`alloca`提升为SSA寄存器，适当的插入PHI节点。
+
+---
+
+现在为了为我们的语言添加可变变量的功能，我们需要：
+
++ 使用`=`修改变量
++ 定义新变量
+
+我们之前在codegen阶段定义的符号表`NameValues`记录的是`Value*`，也就是变量的双精度值。现在为了支持变量修改，我们记录内存所在的位置。`static std::map<std::string, AllocaInst*> NamedValues;`

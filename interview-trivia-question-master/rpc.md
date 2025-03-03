@@ -49,6 +49,8 @@ RPC对这些底层逻辑进行了封装，开发人员只需要专注于业务�
 
 ### 实现一个rpc的前置知识
 
+
+
 我们实现的rpc框架使用的序列化技术是Protobuf。rpc双方通信时发送的都是固定的结构，发送前用Protobuf把消息结构体二进制序列化，在接收方又把这个消息结构体反序列化。
 
 设计的一个简单消息输出格式是这样的
@@ -151,3 +153,136 @@ message RpcHeader {
 
 ### protobuf学习
 
+protobuf为我们提供了序列化和反序列化的服务，我们只需要按照protobuf的语法定义消息，它序列化出来的数据是二进制格式，所以网络传输的效率很高。
+
+**定义消息类型**
+
+```protobuf
+syntax = "proto3";
+
+message SearchRequest {
+  string query = 1;
+  int32 page_number = 2;
+  int32 results_per_page = 3;
+}
+```
+
+定义的消息中，每个字段都需要指定一个介于 `1` 和 `536,870,911` 之间的数字：
+
+- 给定的数字在该消息的所有字段中 **必须唯一**。
+- 数字 `19,000` 到 `19,999` 保留给 Protocol Buffers 实现。如果您在消息中使用这些保留的字段编号之一，协议缓冲区编译器将发出警告。
+- 不能使用任何先前 [保留](https://protobuf.com.cn/programming-guides/proto3/#fieldreserved) 的字段编号或已分配给 [扩展](https://protobuf.com.cn/programming-guides/proto2#extensions) 的任何字段编号。
+
+
+
+**定义服务**
+
+如果我们想让我们的消息类型和RPC系统一起使用，可以在`.proto`文件中定义一个 RPC 服务接口，协议缓冲区编译器将在您选择的语言中生成服务接口代码和存根。
+
+比如我们之前已经定义了`SearchRequest`、 `SearchResponse` 消息，现在想定义一个rpc服务，它是一个接受`SearchRequest`参数返回`SearchResponse`的方法：
+
+```protobuf
+service SearchService {
+  rpc Search(SearchRequest) returns (SearchResponse);
+}
+```
+
+### ZooKeeper
+
+ZooKeeper是一个分布式服务框架，为分布式应用提供一致性协调服务的中间件。在这个项目中，callee将【对外提供的服务对象及其方法】以及【网络地址信息】注册在ZooKeeper服务上，caller则通过访问ZooKeeper在整个分布式环境中获取自己想要调用的远端服务对象方法【在哪一台设备上（网络地址信息）】，并向该设备直接发送服务方法调用请求。
+
+
+
+
+## rpc框架实现流程图说明
+
+![image-20250303193909970](E:\githome\a44447.github.io\interview-trivia-question-master\assets\image-20250303193909970.png)
+
+我们以这样的业务场景来分析: Caller调用远端方法Login和Register。Callee中的Login函数接收一个LoginRequest消息体，执行完Login逻辑后将处理结果填写进LoginResponse消息体，再返回给Caller。调用Register函数过程同理。
+
+可以看到，Callee对外提供了远端可调用方法`Login`、`Register`，我们将其在`user.proto`中进行注册。同时我们定义`message LoginRequest`、`message LoginResponse`...
+
+```protobuf
+service UserServiceRpc
+{
+	rpc Login(LoginRequest) returns(LoginResponse);
+	rpc Register(RegisterRequest) returns(RegisterResponse);
+}
+```
+
+然后我们就可以用protoc来编译这个.proto文件
+
+```
+protoc user.proto -I ./ -cpp_out=./user
+```
+
+最后对于c++会生成`user.cc`与`user.h`
+
+这里面有两个重要的类`UserServiceRpc_Stub`类给caller使用，`UserServiceRpc`给callee使用。caller可以调用`UserServiceRpc_Stub::Login(...)`发起远端调用，而callee则继承`UserServiceRpc`类并重写`UserServiceRpc::Login(...)`函数，实现Login函数的处理逻辑。
+
+---
+
+于是让我们看看业务层逻辑，现在我们假设在caller向callee发起调用Login函数
+
+```c++
+MprpcApplication::Init(argc, argv);
+//MprpcApplication类提供了解析argc和argv参数的方法，我们在终端执行这个程序的时候，需要通过-i参数给程序提供一个配置文件，这个配置文件里面包含了一些通信地址信息（后面提到）
+
+fixbug::UserServiceRpc_Stub stub(new MprpcChannel());
+//这一步操作后面会讲，这里就当是实例化UserServiceRpc_Stub对象吧。UserServiceRpc_Stub是由user.proto生成的类，我们之前在user.proto中注册了Login方法，
+
+fixbug::LoginRequest request;
+request.set_name("zhang san");
+request.set_pwd("123456");
+//回想起我们的user.proto中注册的服务方法：
+// rpc Login(LoginRequest) returns(LoginResponse);
+// callee的Login函数需要参数LoginRequest数据结构数据
+
+fixbug::LoginResponse response;
+// callee的Login函数返回LoginResponse数据结构数据
+
+stub.Login(nullptr, &request, &response, nullptr); 
+//caller发起远端调用，将Login的参数request发过去，callee返回的结果放在response中。
+
+if (0 == response.result().errcode()) 
+    std::cout << "rpc login response success:" << response.sucess() << std::endl;
+else
+    std::cout << "rpc login response error : " << response.result().errmsg() << std::endl;
+//打印response中的内容，别忘了这个result和success之前在user.proto注册过
+return 0;
+
+```
+
+现在在callee端，我们假设已经自定义的`UserService`类已经继承了`UserServiceRpc`并且重写了`Login`函数的逻辑。
+
+在callee端，还需要做的
+
+```c++\
+MprpcApplication::Init(argc, argv);
+//想要用rpc框架就要先初始化
+
+RpcProvider provider;
+// provider是一个rpc对象。它的作用是将UserService对象发布到rpc节点上，暂时不理解没关系！！
+
+provider.NotifyService(new UserService());
+// 将UserService服务及其中的方法Login发布出去，供远端调用。
+// 注意我们的UserService是继承自UserServiceRpc的。远端想要请求UserServiceRpc服务其实请求的就是UserService服务。而UserServiceRpc只是一个虚类而已。
+
+provider.Run();
+// 启动一个rpc服务发布节点   Run以后，进程进入阻塞状态，等待远程的rpc调用请求
+return 0;
+```
+
+可以看到，我们现在的流程已经到了需要把callee提供的远程调用方法注册到rpcServer的步骤了。RpcServer负责的就是将本地服务方法注册到ZooKeeper上，并接受来自caller的远端服务方法调用，并返回结果给caller。
+
+---
+
+我们需要引入一个`RpcProvider`，这是一个网络对象类，负责的是发布rpc服务方法。这个类对外界提供`NotifyService`和`Run`两个成员方法。`NotifyService`函数可以将`UserService`服务对象及其提供的方法进行**预备发布**。发布完服务对象后再调用`Run()`就**将预备发布的服务对象及方法注册到ZooKeeper上并开启了对远端调用的网络监听**（caller通过tcp向callee请求服务，callee当然要监听).
+
+
+
+## 实现
+
+根据我们上面的梳理，我们先实现`Mrpcapplication`类，这是一个单例类，实现rpc框架的初始化操作，包括了读取config等。
+
+通过单例模式实现的。

@@ -286,3 +286,44 @@ return 0;
 根据我们上面的梳理，我们先实现`Mrpcapplication`类，这是一个单例类，实现rpc框架的初始化操作，包括了读取config等。
 
 通过单例模式实现的。
+
+---
+
+完成核心函数rpc provider需要网络通信操作的支持，这里选择使用muduo库
+
+### muduo库
+
+muduo是一种Reactor模型，「事件驱动」
+
+**核心思想：**应用程序 **不主动等待** I/O 事件，而是 **注册事件监听器**，当 I/O 事件发生时，事件分发器（Event Demultiplexer） 负责通知应用程序。
+
+1. I/O 多路复用（select / poll / epoll）：监听多个 socket 连接，等待 I/O 事件。
+2. 事件触发：当某个 socket 有数据可读/可写，或连接变化，通知 Reactor。
+3. 事件分发：Reactor 通过 回调函数 处理 I/O 事件，如 onConnection、onMessage 等。
+4. 业务处理：执行相应的应用逻辑，如解析数据、更新状态、发送响应。
+
+
+
+**传统线程模型**： aceept->read->write->close，可以看到这样的方式每个连接都会占用一个线程，而Reactor模型通过I/O复用+事件回调，使得一个线程能处理成千上万个连接。
+
+**单Reactor:**
+
++ 一个 EventLoop（事件循环）
+
++ 监听所有事件（连接、读写）
+
++ 适合轻量级服务器
+
+  
+
+  流程
+
+1. EventLoop 监听 socket 事件（accept、read、write）
+2. 事件发生时，调用回调函数 onConnection、onMessage
+3. 处理完成后继续监听
+   优点
+
+代码简单，适用于 I/O 事件少、负载低的应用（如管理后台服务）
+缺点
+
+如果某个回调函数执行时间过长，会阻塞其他连接，影响吞吐量

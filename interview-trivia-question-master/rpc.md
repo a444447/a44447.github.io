@@ -279,6 +279,83 @@ return 0;
 
 我们需要引入一个`RpcProvider`，这是一个网络对象类，负责的是发布rpc服务方法。这个类对外界提供`NotifyService`和`Run`两个成员方法。`NotifyService`函数可以将`UserService`服务对象及其提供的方法进行**预备发布**。发布完服务对象后再调用`Run()`就**将预备发布的服务对象及方法注册到ZooKeeper上并开启了对远端调用的网络监听**（caller通过tcp向callee请求服务，callee当然要监听).
 
+----
+
+**客户端**
+
+在我们的业务中,protobuf生成的`UserServiceRpc_Stub`类是给caller端用的，而且我们在user.proto上注册的rpc方法已经在`UserServiceRpc_Stub`类完全实现。
+
+查看代码
+
+```protobuf
+void UserServiceRpc_Stub::Login(::google::protobuf::RpcController* controller,
+                              const ::fixbug::LoginRequest* request,
+                              ::fixbug::LoginResponse* response, ::google::protobuf::Closure* done) {
+  channel_->CallMethod(descriptor()->method(0), controller,
+                       request, response, done);
+}
+```
+
+看到调用了channel_->CallMethod
+
+这个`channel_`是一个`RpcChannel`类，里面提供了一个虚函数CallMethod
+
+```c++
+class PROTOBUF_EXPORT RpcChannel {
+ public:
+  inline RpcChannel() {}
+  virtual ~RpcChannel();
+
+  // Call the given method of the remote service.  The signature of this
+  // procedure looks the same as Service::CallMethod(), but the requirements
+  // are less strict in one important way:  the request and response objects
+  // need not be of any specific class as long as their descriptors are
+  // method->input_type() and method->output_type().
+  virtual void CallMethod(const MethodDescriptor* method,
+                          RpcController* controller, const Message* request,
+                          Message* response, Closure* done) = 0;
+
+ private:
+  GOOGLE_DISALLOW_EVIL_CONSTRUCTORS(RpcChannel);
+};
+```
+
+所以用户就需要自己实现一个继承于`RpcChannel`的派生类，实现`CallMethod`的定义
+
+---
+
+我们再查看`UserServiceRpc`类，这是提供给服务端的类，父类`Service`提供了虚函数`CallMethod`。`UserServiceRpc`也实现了`CallMethod`,
+
+```c++
+void UserServiceRpc::CallMethod(
+    const ::google::protobuf::MethodDescriptor* method,
+    ::google::protobuf::RpcController* controller,
+    const ::google::protobuf::Message* request,
+    ::google::protobuf::Message* response, ::google::protobuf::Closure* done) {
+  ABSL_DCHECK_EQ(method->service(), file_level_service_descriptors_user_2eproto[0]);
+  switch (method->index()) {
+    case 0:
+      Login(controller,
+             ::google::protobuf::internal::DownCast<const ::fixbug::LoginRequest*>(request),
+             ::google::protobuf::internal::DownCast<::fixbug::LoginResponse*>(response), done);
+      break;
+    case 1:
+      Register(controller,
+             ::google::protobuf::internal::DownCast<const ::fixbug::RegisterRequest*>(request),
+             ::google::protobuf::internal::DownCast<::fixbug::RegisterResponse*>(response), done);
+      break;
+
+    default:
+      ABSL_LOG(FATAL) << "Bad method index; this should never happen.";
+      break;
+  }
+}
+```
+
+可以看到，他是根据传递进来的方法描述符`method`来选择调用注册在user.proto上的哪一个函数。
+
+在我们自己的服务端派生类`UserService`继承了`UserServiceRpc`并且重写了Login函数的实现。所以当我们调用`service->CallMethod()`的时候，调用的其实是`UserService`中的Login函数。**多漂亮的多态思想啊。**
+
 
 
 ## 实现

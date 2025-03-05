@@ -393,6 +393,10 @@ muduo是一种Reactor模型，「事件驱动」
 
   
 
+  
+  
+  
+  
   流程
 
 1. EventLoop 监听 socket 事件（accept、read、write）
@@ -404,3 +408,36 @@ muduo是一种Reactor模型，「事件驱动」
 缺点
 
 如果某个回调函数执行时间过长，会阻塞其他连接，影响吞吐量
+
+
+
+**多Reactor结构:**
+
+**结构**
+
+- **主 Reactor（MainReactor）**：负责监听新连接（`accept`）
+- **多个子 Reactor（SubReactor）**：负责处理已连接 socket 的 I/O 事件（`read` / `write`）
+- **线程池**：多个线程处理业务逻辑
+
+**流程**
+
+1. 主 Reactor 监听新连接（`accept`），并将新连接分配给某个子 Reactor
+2. 子 Reactor 监听已连接 socket 的读写事件，并调用 `onMessage` 进行数据处理
+3. 业务逻辑交给线程池执行（如数据库操作、复杂计算）
+
+**优点**
+
+- 主线程只负责 accept，避免阻塞
+- I/O 处理交给多个子线程，提高吞吐量
+- 适合高并发场景（如游戏服务器、IM）
+
+**缺点**
+
+- 多线程编程更复杂，需要注意线程安全（如共享数据访问）
+
+#### multi-Reactor结构
+
+
+
+![img](https://obsdian-1304266993.cos.ap-chongqing.myqcloud.com/202503051114135.jpg)
+

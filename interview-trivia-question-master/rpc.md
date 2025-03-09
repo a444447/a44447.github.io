@@ -366,78 +366,425 @@ void UserServiceRpc::CallMethod(
 
 ---
 
-完成核心函数rpc provider需要网络通信操作的支持，这里选择使用muduo库
-
-### muduo库
-
-muduo是一种Reactor模型，「事件驱动」
-
-**核心思想：**应用程序 **不主动等待** I/O 事件，而是 **注册事件监听器**，当 I/O 事件发生时，事件分发器（Event Demultiplexer） 负责通知应用程序。
-
-1. I/O 多路复用（select / poll / epoll）：监听多个 socket 连接，等待 I/O 事件。
-2. 事件触发：当某个 socket 有数据可读/可写，或连接变化，通知 Reactor。
-3. 事件分发：Reactor 通过 回调函数 处理 I/O 事件，如 onConnection、onMessage 等。
-4. 业务处理：执行相应的应用逻辑，如解析数据、更新状态、发送响应。
 
 
+## rpc框架总结
 
-**传统线程模型**： aceept->read->write->close，可以看到这样的方式每个连接都会占用一个线程，而Reactor模型通过I/O复用+事件回调，使得一个线程能处理成千上万个连接。
+我自己实现的rpc服务框架依赖了protobuf来将进行消息的序列化和反序列化。在`.proto`中定义了消息结构以及某个rpc服务以及其包含的方法后，可以生成c++类。
 
-**单Reactor:**
+rpc服务框架主要有两个方法:
 
-+ 一个 EventLoop（事件循环）
++ NotifyService：负责把RPC方法发布出去，就是把本节点提供的服务与方法都注册进`m_serviceMap`
++ Run：启动rpc服务节点，开启rpc远程调用服务
 
-+ 监听所有事件（连接、读写）
+设计了一个`m_serviceMap`，其`key`是某个服务对象，`val`就是这个对象中有哪些服务方法
 
-+ 适合轻量级服务器
+### NotifyService
 
-  
+protobuf为我们编写的rpc服务生成的c++类，它的基类是`google::protobuf::Service`, 所以以它作为函数的参数，接受一个服务。
 
-  
-  
-  
-  
-  流程
+我们注意protobuf生成的c++类中，使用`google::protobuf::ServiceDescriptor`类来描述一个服务，可以通过`Service->GetDescriptor()`来得到。
 
-1. EventLoop 监听 socket 事件（accept、read、write）
-2. 事件发生时，调用回调函数 onConnection、onMessage
-3. 处理完成后继续监听
-   优点
+当获得这个服务描述后就可以
 
-代码简单，适用于 I/O 事件少、负载低的应用（如管理后台服务）
-缺点
+```c++
+string::name = describe->name();
+//查询这个服务有多少个方法
+int cnt  = describe->method_count();
 
-如果某个回调函数执行时间过长，会阻塞其他连接，影响吞吐量
+```
 
+和服务一样，protobuf也提供了对于方法进行描述的类`google::protobuf::MethodDescriptor` （自己定义的什么Login远程调用方法都是用它来描述）
 
+```c++
+//通过服务，来获得方法的描述
+const google::protobuf::MethodDescriptor* pmethodDesc = pserviceDesc->method(i);
+//获得方法的名称
+std::string method_name = pmethodDesc->name();
+```
 
-**多Reactor结构:**
+然后就是把服务方法都保存
 
-**结构**
-
-- **主 Reactor（MainReactor）**：负责监听新连接（`accept`）
-- **多个子 Reactor（SubReactor）**：负责处理已连接 socket 的 I/O 事件（`read` / `write`）
-- **线程池**：多个线程处理业务逻辑
-
-**流程**
-
-1. 主 Reactor 监听新连接（`accept`），并将新连接分配给某个子 Reactor
-2. 子 Reactor 监听已连接 socket 的读写事件，并调用 `onMessage` 进行数据处理
-3. 业务逻辑交给线程池执行（如数据库操作、复杂计算）
-
-**优点**
-
-- 主线程只负责 accept，避免阻塞
-- I/O 处理交给多个子线程，提高吞吐量
-- 适合高并发场景（如游戏服务器、IM）
-
-**缺点**
-
-- 多线程编程更复杂，需要注意线程安全（如共享数据访问）
-
-#### multi-Reactor结构
+```c++
+service_info.service = service;
+service_map.emplace(service_name, service_info);
+```
 
 
 
-![img](https://obsdian-1304266993.cos.ap-chongqing.myqcloud.com/202503051114135.jpg)
+### Run
+
+调用Run，就是把`service_map`中的服务以及它们的方法都注册到zk上。我们的项目中zk的作用就是让提供rpc服务的节点将【对外提供的服务对象及其方法】以及【网络地址信息】注册到上面。caller则通过访问ZooKeeper在整个分布式环境中获取自己想要调用的远端服务对象方法【在哪一台设备上（网络地址信息）】，并向该设备直接发送服务方法调用请求。
+
+于是首先，我们封装了Zookeeper的一些api，创建了一个名为`ZKClient`的类，提供了`Start`（zkclient连接zkserver),`create`在zk中创建一个节点,以及`GetData`。
+
+使用的是`zookeeper_mt`多线程库，使用了三个线程:
+
++ 主线程： 负责用户调用api
++ IO线程： 负责网络通信
++ completion线程：对于异步请求（Zookeeper中提供的异步API，一般都是以zoo_a开头的api）以及**watcher的响应回调**，io线程会发送给completion线程完成处理。关于watcher机制后面会介绍。
+
+设计的是： 把服务对象名以永久节点的形式在ZK中保存，所以当rpcServer与ZK断开连接后，还是会保存服务对象名(比如叫UserServiceRpc)。服务提供的方法对象名是临时节点，然后节点的数据就是提供该服务方法的RpcServer的地址(ip+port).
+
+**Start**
+
+Start方法负责的是连接上ZK。
+
+```c++
+// 使用zookeeper_init初始化一个zk对象，异步建立rpcserver和zkclient之间的连接
+//connstr:"ip:port"
+//global_watcher：当ZK返回给client一个事件通知时，调用这个watch回调。
+//通过这个保证Start执行完前已经建立了连接。
+m_zhandle = zookeeper_init(connstr.c_str(), global_watcher, 6000, nullptr, nullptr, 0);
+```
+
+**watcher机制就是ZooKeeper客户端对某个znode建立一个watcher事件，当该znode发生变化时，这些ZK客户端会收到ZK服务端的通知，然后ZK客户端根据znode的变化来做出业务上的改变。**
+
+从下面的代码中要先知道一个事情，我们在ZkClient::Start()函数中调用了zookeeper_init(...)函数，并且把全局函数global_watcher(...)传了进去。zookeeper_init(...)函数的功能是【异步】建立rpcserver和zookeeper连接，并返回一个句柄赋给m_zhandle（客户端通过该句柄和服务端交互）。如何理解异步建立，就是说当程序在ZkClient::Start()函数中获得了zookeeper_init(..)函数返回的句柄后，连接还不一定已经建立好。因为发起连接建立的函数和负责建立连接的任务不在同一个线程里完成。（之前说过ZooKeeper有三个线程）
+ 所以调用完zookeeper_init函数之后，下面还定义了一个同步信号量sem，并且调用sem_wait(&sem)阻塞当前主线程，等ZooKeeper服务端收到来自客户端callee的连接请求后，服务端为节点创建会话（此时这个节点状态发生改变），服务端会返回给客户端callee一个事件通知，然后触发watcher回调（执行global_watcher函数）
+
+**GetData**
+
+核心就是把服务名与方法名组织成路径通过ZK提供的api与ZK服务器交互。
+
+---
+
+在实现了ZKClient后，我们可以把服务对象与方法发布到ZK上了，然后就利用muduo库提供的网络模块开启rpcServer的(ip, port)监听。我们已经获得了`ip,port`
+
+```c++
+//创建address对象，这是对套接字的封装
+muduo::net::InetAddress address(ip, port);
+//// 创建TcpServer对象
+std::shared_ptr<muduo::net::TcpServer> server = std::make_shared<muduo::net::TcpServer>(&event_loop, address, "KrpcProvider");
+
+```
+
+muduo是Reactor模型，所以是根据到达的事件来调用响应的回调函数
+
+```c++
+server->setConnectionCallback(std::bind(&KrpcProvider::OnConnection, this, std::placeholders::_1));
+server->setMessageCallback(std::bind(&KrpcProvider::OnMessage, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+```
+
+可以看到分别为连接事件和消息事件设置了回调。
+
+后面就是启动`ZKClient.Start`，然后为`service_map`中的服务与方法注册节点到ZK中。
+
+然后开启监听，并且`event_loop.loop()`。
+
+现在来看看回调函数是怎么设计的
+
+**OnConnection:**
+
+```c++
+void KrpcProvider::OnConnection(const muduo::net::TcpConnectionPtr &conn)
+{
+    if (!conn->connected())
+    { // 如果连接关闭则断开连接即可。
+        conn->shutdown();
+    }
+}
+```
+
+**OnMessage:**
+
+一旦进入了消息回调函数，首先就是把rpc请求字符流获得
+
+```
+std::string recv_buf = buffer->retrieveAllAsString();
+```
+
+使用protobuf提供的反序列化方法`CodedInputStream`
+
+```c++
+google::protobuf::io::ArrayInputStream raw_input(recv_buf.data(), recv_buf.size());
+google::protobuf::io::CodedInputStream coded_input(&raw_input);
+```
+
+首先是要把`header_size`读了
+
+```
+coded_input.ReadVarint32(&header_size);// 解析header_size
+```
+
+然后设置一下最大允许读取的数量， 防止读多了
+
+```c++
+google::protobuf::io::CodedInputStream::Limit msg_limit = coded_input.PushLimit(header_size);
+coded_input.ReadString(&rpc_header_str, header_size);
+// 恢复之前的限制，以便安全地继续读取其他数据
+coded_input.PopLimit(msg_limit);
+```
+
+现在有了rpc_header_str，就可以先把这个解析了
+
+```c++
+if(krpcHeader.ParseFromString(rpc_header_str)){
+        service_name = krpcHeader.service_name();
+        method_name = krpcHeader.method_name();
+        args_size=krpcHeader.args_size();
+    }else{
+        KrpcLogger::ERROR("krpcHeader parse error");
+        return;
+    }
+```
+
+然后是根据args_size读取参数的步骤(我们之所有有rpcheader，是为了防止TCP拆包粘包)
+
+```c++
+ bool read_args_success=coded_input.ReadString(&args_str,args_size);
+```
+
+现在就是从`service_map`中根据我们已经提取的`service_name`和`method_name`取出对应的`Service`与`Method`
+
+```c++
+auto it = service_map.find(service_name);
+    if (it == service_map.end())
+    {
+        std::cout << service_name << "is not exist!" << std::endl;
+        return;
+    }
+    auto mit = it->second.method_map.find(method_name);
+    if (mit == it->second.method_map.end())
+    {
+        std::cout << service_name << "." << method_name << "is not exist!" << std::endl;
+        return;
+    }
+    google::protobuf::Service *service = it->second.service;        // 获取服务对象
+    const google::protobuf::MethodDescriptor *method = mit->second; // 获取方法对象
+```
+
+现在就可以创建request,`GetRequestPrototype`
+
+```c++
+google::protobuf::Message *request = service->GetRequestPrototype(method).New();
+//反序列化生成request
+request->ParseFromString(args_str);
+```
+
+对于response也是同样的
+
+```c++
+ google::protobuf::Message *response = service->GetResponsePrototype(method).New();
+```
+
+现在我们需要创建一个闭包(callback),done，它负责当我们最后的`CallMethod`执行完成后，它会被触发。
+
+```c++
+google::protobuf::Closure *done = google::protobuf::NewCallback<KrpcProvider,
+                                                                    const muduo::net::TcpConnectionPtr &,
+                                                                    google::protobuf::Message *>(this,
+                                                                                                 &KrpcProvider::SendRpcResponse,
+                                                                                                 conn, response);
+```
+
+`NewCallback`:
+
++ param1: 类的类型
++ param2: 第一个参数的类型
++ param3: 第二个参数的类型
++ param4: 绑定的对象(KrpcProvider的示例)
++ param5: 绑定的成员函数
++ param6: `TcpConnectionPtr`，表示 RPC 连接
++ param7: `Message*`，表示 RPC 方法的响应对象
+
+最后执行一个`service->CallMethod`,根据远端的请求，调用当前rpc节点上发布的方法。
+
+有关send,其实就是把response反序列化了
+
+```c++
+void KrpcProvider::SendRpcResponse(const muduo::net::TcpConnectionPtr &conn, google::protobuf::Message *response)
+{
+    std::string response_str;
+    if (response->SerializeToString(&response_str))
+    {
+        // 序列化成功，通过网络把rpc方法执行的结果返回给rpc的调用方
+        conn->send(response_str);
+    }
+    else
+    {
+        std::cout << "serialize error!" << std::endl;
+    }
+   // conn->shutdown(); // 模拟http短链接，由rpcprovider主动断开连接
+}
+```
+
+### RpcChannel
+
+我们上面的RpcProvider是服务于rpc方法提供节点的，它们能够发布服务与方法，并且Run。
+
+对于客户端，我们实现了一个RpcChannel类，它是继承于`google::protobuf::RpcChannel`，目的是为了给客户端方法调用的时候，统一接收。
+
+在protobuf生成的给caller的类`Stub`中，我们在`.proto`文件注册的的rpc方法都已经实现了，怎么实现的？
+
+```c++
+void UserServiceRpc_Stub::Login(::PROTOBUF_NAMESPACE_ID::RpcController* controller,
+                              const ::fixbug::LoginRequest* request,
+                              ::fixbug::LoginResponse* response,
+                              ::google::protobuf::Closure* done) {
+  channel_->CallMethod(descriptor()->method(0),
+                       controller, request, response, done);
+}
+
+```
+
+调用了一个`channel_->CallMethod`，这个`channel_`就是一个`google::protobuf::RpcChannel`类,它是一个虚类，也就是说caller需要自己实现一个继承了`google::protobuf::RpcChannel`的类，并且实现`CallMethod`。
+
+---
+
+这就是为什么我们有一个`RpcChannel`类。我们自己的实现的CallMethod中，主要做的事情就是:
+
+1. 通过`service_name`和`method_name`从ZK服务器获得对应的`ip:port`。（所以需要调用`ZKClient.Start()`）
+2. 获得参数的序列化字符串长度
+
+```c++
+uint32_t args_size{};
+    std::string args_str;
+    if (request->SerializeToString(&args_str))
+    {
+        args_size = args_str.size();
+    }
+```
+
+3. 定义我们rpc header的service_name, method_name, args_size
+
+```c++
+Krpc::RpcHeader krpcheader;
+krpcheader.set_service_name(service_name);
+krpcheader.set_method_name(method_name);
+krpcheader.set_args_size(args_size);
+```
+
+4. 计算整个rpc header序列化为字符串后的长度。
+
+```c++
+uint32_t header_size = 0;
+std::string rpc_header_str;
+if (krpcheader.SerializeToString(&rpc_header_str))
+{
+    header_size = rpc_header_str.size();
+}
+```
+
+5. 生成整个发送的protobuf流
+
+```c++
+std::string send_rpc_str;
+    {
+        google::protobuf::io::StringOutputStream string_output(&send_rpc_str);
+        google::protobuf::io::CodedOutputStream coded_output(&string_output);
+        coded_output.WriteVarint32(static_cast<uint32_t>(header_size));
+        coded_output.WriteString(rpc_header_str);
+    }
+send_rpc_str += args_str;
+```
+
+6. 调用send()发送
+7. 调用recv()接受
+8. 调用`response->ParseFromArray(recv_buf, recv_size)`反序列化
+
+---
+
+当框架完成后，rpc提供方只需要在`.proto`中定义好自己的rpc服务与方法，然后继承一下自己的rpc类，并在整个类中实现自己服务的方法。要发布它就实例化provider,然后调用`provider.NotifyService(new UserService())`
+
+以`UserService为例`:
+
+```c++
+class UserService : public fixbug::UserServiceRpc // 使用在rpc服务发布端（rpc服务提供者）
+{
+public:
+    bool Login(std::string name, std::string pwd)
+    {
+        /**** 业务层代码 ****/
+        std::cout << "doing local service: Login" << std::endl;
+        std::cout << "name:" << name << " pwd:" << pwd << std::endl;
+        return false;
+    }
+    void Login(::google::protobuf::RpcController* controller,
+                       const ::fixbug::LoginRequest* request,
+                       ::fixbug::LoginResponse* response,
+                       ::google::protobuf::Closure* done)
+    {
+		/**** callee要继承UserServiceRpc并重写它的Login函数 ****/
+        
+        std::string name = request->name();
+        std::string pwd = request->pwd();
+        //request存着caller发来的Login函数需要的参数
+        
+        bool login_result = Login(name, pwd);
+        //处理Login函数的逻辑，这部分逻辑单独写了一个函数。处于简化目的，就只是打印一下name和pwd。
+        
+        fixbug::ResultCode *code = response->mutable_result();
+        code->set_errcode(0);
+        code->set_errmsg("");
+        response->set_sucess(login_result);
+        //将逻辑处理结果写入到response中。
+        
+        done->Run();
+        //将结果发送回去
+    }
+};
+
+int main(int argc, char **argv)
+{
+    MprpcApplication::Init(argc, argv);
+	//想要用rpc框架就要先初始化
+    
+    RpcProvider provider;
+    // provider是一个rpc对象。它的作用是将UserService对象发布到rpc节点上，暂时不理解没关系！！
+    
+    provider.NotifyService(new UserService());
+    // 将UserService服务及其中的方法Login发布出去，供远端调用。
+    // 注意我们的UserService是继承自UserServiceRpc的。远端想要请求UserServiceRpc服务其实请求的就是UserService服务。而UserServiceRpc只是一个虚类而已。
+
+    provider.Run();
+	// 启动一个rpc服务发布节点   Run以后，进程进入阻塞状态，等待远程的rpc调用请求
+    return 0;
+}
+```
+
+
+
+而对于caller方，由于protoc对于`Stub`类实现了注册的方法，通过调用channel_->CallMethod的方式。因此只需要直接实例化`Stub(new Channel())`，然后创建request，调用方法就行。
+
+```c++
+/****
+文件注释：
+文件名： calluserservice.cc
+caller端代码：caller向callee发起远端调用，即caller想要调用处于callee中的Login函数。
+****/
+#include <iostream>
+#include "mprpcapplication.h"
+#include "user.pb.h"
+#include "mprpcchannel.h"
+int main(int argc, char **argv)
+{
+    MprpcApplication::Init(argc, argv);
+	//MprpcApplication类提供了解析argc和argv参数的方法，我们在终端执行这个程序的时候，需要通过-i参数给程序提供一个配置文件，这个配置文件里面包含了一些通信地址信息（后面提到）
+
+    fixbug::UserServiceRpc_Stub stub(new MprpcChannel());
+    //这一步操作后面会讲，这里就当是实例化UserServiceRpc_Stub对象吧。UserServiceRpc_Stub是由user.proto生成的类，我们之前在user.proto中注册了Login方法，
+    
+    fixbug::LoginRequest request;
+    request.set_name("zhang san");
+    request.set_pwd("123456");
+  	//回想起我们的user.proto中注册的服务方法：
+    // rpc Login(LoginRequest) returns(LoginResponse);
+    // callee的Login函数需要参数LoginRequest数据结构数据
+    
+    fixbug::LoginResponse response;
+    // callee的Login函数返回LoginResponse数据结构数据
+    
+    stub.Login(nullptr, &request, &response, nullptr); 
+    //caller发起远端调用，将Login的参数request发过去，callee返回的结果放在response中。
+
+    if (0 == response.result().errcode()) 
+        std::cout << "rpc login response success:" << response.sucess() << std::endl;
+    else
+        std::cout << "rpc login response error : " << response.result().errmsg() << std::endl;
+    //打印response中的内容，别忘了这个result和success之前在user.proto注册过
+    return 0;
+}
+
+```
 

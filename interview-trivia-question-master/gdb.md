@@ -124,6 +124,14 @@ Program terminated with signal SIGSEGV, Segmentation fault.
 ***/
 ```
 
+```
+(gdb) bt  # 查看调用栈
+(gdb) backtrace
+(gdb) frame 2 
+(gdb) up
+(gdb) down
+```
+
 
 
 
@@ -170,3 +178,94 @@ ps -ef | grep a.out
 gdb -p PID
 ```
 
+
+
+
+
+
+
+# git相关
+
+## 查看状态
+
+```
+git status  # 查看当前仓库状态
+git log  # 查看提交历史
+```
+
+## 撤销修改
+
+```c++
+git reset HEAD file.cpp  # 取消暂存
+```
+
+### 取消commit
+
+```c++
+git reset --soft HEAD~1  # 只撤销 commit，保留代码
+git reset --hard HEAD~1  # 彻底撤销 commit 和代码修改
+```
+
+**`git reset` 和 `git revert` 的区别？**
+
+- `reset` **回到历史版本（破坏性）**，`revert` **创建新的 commit（不破坏历史）**。
+
+## git分支管理
+
+### 创建
+
+```c++
+git branch dev  # 创建 dev 分支
+git checkout dev  # 切换到 dev 分支
+git switch dev  # 也可以用 switch（Git 2.23+）
+```
+
+### 合并
+
+```c++
+git checkout main
+git merge dev  # 合并 dev 到 main
+```
+
+### 删除分支
+
+```c++
+git branch -d dev  # 删除本地分支
+git push origin --delete dev  # 删除远程分支
+
+```
+
+## Git Rebase
+
+### **1. 变基（Rebase）**
+
+```
+git rebase main  # 把当前分支变基到 main
+```
+
+**和 `merge` 的区别**：
+
+- `merge` **保留所有 commit 历史**。
+- `rebase` **让分支历史变得更直线（更干净）**。
+
+✅ **面试可能会问**：
+
+- `git merge` 和 `git rebase` 的区别？
+  - `merge` **保留历史**，`rebase` **让历史更清晰**（但会重写 commit）。
+
+
+
+## Git Stash（存储未提交修改)
+
+如果你需要 **切换分支但不想提交代码**：
+
+```
+git stash  # 暂存当前修改
+git checkout main  # 切换分支
+git stash pop  # 取出暂存修改
+```
+
+✅ **面试可能会问**：
+
+- **如何暂存未提交的修改？**
+- **如何取出 `stash`？**

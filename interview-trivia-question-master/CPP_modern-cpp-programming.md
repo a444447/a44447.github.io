@@ -125,6 +125,127 @@ int main() {
 
 ```
 
+## 线程池
+
+线程池（Thread Pool）是一种**线程复用**技术，主要用于提高应用的**性能**、**资源管理**和**任务调度**，其核心目标包括：
+
+**(1) 降低线程创建和销毁的开销**
+
+- 线程的创建和销毁需要系统调用，涉及 CPU 资源分配、内存管理等，成本较高。
+- 线程池**复用已有线程**，减少频繁的创建和销毁操作。
+
+**(2) 限制系统资源消耗，防止线程过度增长**
+
+- 如果应用程序不加控制地创建线程，可能会导致：
+  - **CPU 过载**：线程切换开销大，影响性能。
+  - **内存耗尽**：大量线程占用栈空间，可能导致 OOM（Out of Memory）。
+- 线程池可以设置**最大线程数**，限制并发线程数量，避免资源耗尽。
+
+**(3) 提高任务响应速度**
+
+- 由于线程池中的**工作线程始终存活**，当有新任务到来时，可以立即执行，而不需要等待创建新线程。
+- 适合需要**低延迟**和**高吞吐**的场景，如 Web 服务器、数据库连接池等。
+
+**(4) 提供统一的任务调度**
+
+- 线程池内部有**任务队列**，可以按照**FIFO、优先级、时间片等策略**进行任务调度，提高 CPU 利用率。
+- 适用于**高并发**、**任务密集型**场景，如爬虫、日志处理、图像处理等。
+
+### **2. 线程池的核心组件**
+
+实现一个线程池，通常包含以下核心组件：
+
+1. **任务队列（Task Queue）**：
+   - 存放待执行的任务，通常使用**阻塞队列**（如 `std::queue<std::function<void()>>`）。
+   - 常见的数据结构：
+     - **FIFO 队列（std::queue）**：适用于普通任务。
+     - **优先队列（std::priority_queue）**：适用于高优先级任务调度。
+     - **无界队列 / 有界队列**：用于控制任务数量，防止任务堆积。
+2. **线程集合（Thread Pool）**：
+   - 线程池内部维护一定数量的**工作线程**（Worker Thread），这些线程会不断从任务队列取出任务并执行。
+3. **任务调度（Task Scheduler）**：
+   - 线程池如何管理任务的执行，例如：
+     - **最大线程数**限制
+     - **任务超时机制**
+     - **优先级调度**
+4. **同步机制（Synchronization Mechanism）**：
+   - 由于**多个线程共享任务队列**，需要使用**互斥锁（std::mutex）**和**条件变量（std::condition_variable）**来保证线程安全。
+5. **线程管理（Thread Management）**：
+   - **初始化**线程池（创建固定数量的线程）。
+   - **动态扩展 / 收缩**线程（如 `CachedThreadPool`）。
+   - **销毁**线程池，确保所有任务执行完毕后关闭。
+
+```
+#pragma once
+
+#include <vector>
+#include <thread>
+#include <deque>
+#include <functional>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+
+namespace blendersim
+{
+
+class ThreadPool
+{
+public:
+    ThreadPool(int n)
+    {
+        _runing = true;
+        for(int i = 0; i < n; ++i)
+        {
+            _thread_pool.emplace_back(std::thread(&ThreadPool::process, this));
+        }
+    }
+
+    void AddTask(const std::function<void(void)>& task)
+    {
+        {
+            std::lock_guard lk(_m);
+            _task_queue.emplace_back(task);
+        }
+        _cv.notify_one();
+    }
+
+    ~ThreadPool()
+    {
+        _runing = false;
+        _cv.notify_all(); // Notify all threads to exit.
+        for(int i = 0; i < _thread_pool.size(); ++i)
+        {
+            if(_thread_pool[i].joinable())
+                _thread_pool[i].join();
+        }
+    }
+private:
+    void process()
+    {
+        while(_runing)
+        {
+            std::unique_lock lk(_m);
+            _cv.wait(lk, [this] { return !_runing || !_task_queue.empty(); });
+            if(!_runing && _task_queue.empty())
+                break;
+            auto func = std::move(_task_queue.front());
+            _task_queue.pop_front();
+            lk.unlock();
+            func();
+        }
+    }
+    std::deque<std::function<void(void)>> _task_queue; //Task queue
+    std::vector<std::thread> _thread_pool;  // Save subthreads
+    std::mutex _m;
+    std::condition_variable _cv;
+    std::atomic<bool> _runing;
+};
+
+} // namespace blendersim
+
+```
+
 
 
 ## auto关键字

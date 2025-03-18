@@ -1,5 +1,344 @@
 # C11——C17编程技巧
 
+## 设计模式
+
+### c++单例模式
+
+> 定义：单例模式是创建型设计模式，指的是在系统的生命周期中只能产生一个实例(对象)，确保该类的唯一性。
+>
+> 一般遇到的写进程池类、日志类、内存池（用来缓存数据的结构，在一处写多出读或者多处写多处读）的话都会用到单例模式
+
+**实现方法：**全局只有一个实例也就意味着不能用new调用构造函数来创建对象，因此构造函数必须是虚有的。但是由于不能new出对象，所以类的内部必须提供一个函数来获取对象，而且由于不能外部构造对象，因此这个函数不能是通过对象调出来，换句话说这个函数应该是属于对象的，很自然我们就想到了用static。由于静态成员函数属于整个类，在类实例化对象之前就已经分配了空间，而类的非静态成员函数必须在类实例化后才能有内存空间。
+
+单例模式的要点总结：
+
+1. 全局只有一个实例，用static特性实现，构造函数设为私有
+2. 通过公有接口获得实例
+3. 线程安全
+4. 禁止拷贝和赋值
+
+单例模式可以**分为懒汉式和饿汉式**，两者之间的区别在于创建实例的时间不同：懒汉式指系统运行中，实例并不存在，只有当需要使用该实例时，才会去创建并使用实例(这种方式要考虑线程安全)。饿汉式指系统一运行，就初始化创建实例，当需要时，直接调用即可。（本身就线程安全，没有多线程的问题）
+
+#### 懒汉式
+
+- 普通懒汉式会让线程不安全
+
+  因为不加锁的话当线程并发时会产生多个实例，导致线程不安全
+
+  ```c++
+  ///  普通懒汉式实现 -- 线程不安全 //
+  #include <iostream> // std::cout
+  #include <mutex>    // std::mutex
+  #include <pthread.h> // pthread_create
+  
+  class SingleInstance
+  {
+  public:
+      // 获取单例对象
+      static SingleInstance *GetInstance();
+      // 释放单例，进程退出时调用
+      static void deleteInstance();
+  	// 打印单例地址
+      void Print();
+  private:
+  	// 将其构造和析构成为私有的, 禁止外部构造和析构
+      SingleInstance();
+      ~SingleInstance();
+      // 将其拷贝构造和赋值构造成为私有函数, 禁止外部拷贝和赋值
+      SingleInstance(const SingleInstance &signal);
+      const SingleInstance &operator=(const SingleInstance &signal);
+  private:
+      // 唯一单例对象指针
+      static SingleInstance *m_SingleInstance;
+  };
+  
+  //初始化静态成员变量
+  SingleInstance *SingleInstance::m_SingleInstance = NULL;
+  
+  SingleInstance* SingleInstance::GetInstance()
+  {
+  	if (m_SingleInstance == NULL)
+  	{
+  		m_SingleInstance = new (std::nothrow) SingleInstance;  // 没有加锁是线程不安全的，当线程并发时会创建多个实例
+  	}
+      return m_SingleInstance;
+  }
+  
+  void SingleInstance::deleteInstance()
+  {
+      if (m_SingleInstance)
+      {
+          delete m_SingleInstance;
+          m_SingleInstance = NULL;
+      }
+  }
+  
+  void SingleInstance::Print()
+  {
+  	std::cout << "我的实例内存地址是:" << this << std::endl;
+  }
+  
+  SingleInstance::SingleInstance()
+  {
+      std::cout << "构造函数" << std::endl;
+  }
+  
+  SingleInstance::~SingleInstance()
+  {
+      std::cout << "析构函数" << std::endl;
+  }
+  ///  普通懒汉式实现 -- 线程不安全  //
+  ```
+
+- 线程安全、内存安全的懒汉式
+
+  上述代码出现的问题：
+
+  1. GetInstance()可能会引发竞态条件，第一个线程在if中判断 `m_instance_ptr`是空的，于是开始实例化单例;同时第2个线程也尝试获取单例，这个时候判断`m_instance_ptr`还是空的，于是也开始实例化单例;这样就会实例化出两个对象,这就是线程安全问题的由来
+
+     解决办法：①加锁。②局部变量实例
+
+  2. 类中只负责new出对象，却没有负责delete对象，因此只有构造函数被调用，析构函数却没有被调用;因此会导致内存泄漏。
+
+     解决办法：使用共享指针
+
+  > c++11标准中有一个特性：如果当变量在初始化的时候，并发同时进入声明语句，并发线程将会阻塞等待初始化结束。这样保证了并发线程在获取静态局部变量的时候一定是初始化过的，所以具有线程安全性。因此这种懒汉式是最推荐的，因为：
+  >
+  > 1. 通过局部静态变量的特性保证了线程安全 (C++11, GCC > 4.3, VS2015支持该特性);
+  > 2. 不需要使用共享指针和锁
+  > 3. get_instance()函数要返回引用而尽量不要返回指针，
+
+  ```c++
+  ///  内部静态变量的懒汉实现  //
+  class Singleton
+  {
+  public:
+      ~Singleton(){
+          std::cout<<"destructor called!"<<std::endl;
+      }
+      //或者放到private中
+      Singleton(const Singleton&)=delete;
+      Singleton& operator=(const Singleton&)=delete;
+      static Singleton& get_instance(){
+          //关键点！
+          static Singleton instance;
+          return instance;
+      }
+      //不推荐，返回指针的方式
+      /*static Singleton* get_instance(){
+          static Singleton instance;
+          return &instance;
+  	}*/
+  private:
+      Singleton(){
+          std::cout<<"constructor called!"<<std::endl;
+      }
+  };
+  
+  ```
+
+  > 使用锁、共享指针实现的懒汉式单例模式
+  >
+  > - 基于 shared_ptr, 用了C++比较倡导的 RAII思想，用对象管理资源,当 shared_ptr 析构的时候，new 出来的对象也会被 delete掉。以此避免内存泄漏。
+  > - 加了锁，使用互斥量来达到线程安全。这里使用了两个 if判断语句的技术称为**双检锁**；好处是，只有判断指针为空的时候才加锁，避免每次调用 get_instance的方法都加锁，锁的开销毕竟还是有点大的。
+  >
+  > 不足之处在于： 使用智能指针会要求用户也得使用智能指针，非必要不应该提出这种约束; 使用锁也有开销; 同时代码量也增多了，实现上我们希望越简单越好。
+
+  ```c++
+  #include <iostream>
+  #include <memory> // shared_ptr
+  #include <mutex>  // mutex
+  
+  // version 2:
+  // with problems below fixed:
+  // 1. thread is safe now
+  // 2. memory doesn't leak
+  
+  class Singleton {
+  public:
+      typedef std::shared_ptr<Singleton> Ptr;
+      ~Singleton() {
+          std::cout << "destructor called!" << std::endl;
+      }
+      Singleton(Singleton&) = delete;
+      Singleton& operator=(const Singleton&) = delete;
+      static Ptr get_instance() {
+  
+          // "double checked lock"
+          if (m_instance_ptr == nullptr) {
+              std::lock_guard<std::mutex> lk(m_mutex);
+              if (m_instance_ptr == nullptr) {
+                  m_instance_ptr = std::shared_ptr<Singleton>(new Singleton);
+              }
+          }
+          return m_instance_ptr;
+      }
+  
+  
+  private:
+      Singleton() {
+          std::cout << "constructor called!" << std::endl;
+      }
+      static Ptr m_instance_ptr;
+      static std::mutex m_mutex;
+  };
+  
+  // initialization static variables out of class
+  Singleton::Ptr Singleton::m_instance_ptr = nullptr;
+  std::mutex Singleton::m_mutex;
+  ```
+
+  
+
+#### 饿汉式
+
+```c++
+
+// 饿汉实现 /
+class Singleton
+{
+    
+public:
+    // 获取单实例
+    static Singleton* GetInstance();
+    // 释放单实例，进程退出时调用
+    static void deleteInstance();
+    // 打印实例地址
+    void Print();
+
+private:
+    // 将其构造和析构成为私有的, 禁止外部构造和析构
+    Singleton();
+    ~Singleton();
+
+    // 将其拷贝构造和赋值构造成为私有函数, 禁止外部拷贝和赋值
+    Singleton(const Singleton &signal);
+    const Singleton &operator=(const Singleton &signal);
+
+private:
+    // 唯一单实例对象指针
+    static Singleton *g_pSingleton;
+};
+
+// 代码一运行就初始化创建实例 ，本身就线程安全
+Singleton* Singleton::g_pSingleton = new (std::nothrow) Singleton;
+
+Singleton* Singleton::GetInstance()
+{
+    return g_pSingleton;
+}
+
+void Singleton::deleteInstance()
+{
+    if (g_pSingleton)
+    {
+    
+        delete g_pSingleton;
+        g_pSingleton = NULL;
+    }
+}
+
+void Singleton::Print()
+{
+    std::cout << "我的实例内存地址是:" << this << std::endl;
+}
+
+Singleton::Singleton()
+{
+    std::cout << "构造函数" << std::endl;
+}
+
+Singleton::~Singleton()
+{
+    std::cout << "析构函数" << std::endl;
+}
+// 饿汉实现 /
+```
+
+#### 面试题
+
+- 懒汉模式和恶汉模式的实现（判空！！！加锁！！！），并且要能说明原因（为什么判空两次？）
+- 构造函数的设计（为什么私有？除了私有还可以怎么实现（进阶）？）
+- 对外接口的设计（为什么这么设计？）
+- 单例对象的设计（为什么是static？如何初始化？如何销毁？（进阶））
+- 对于C++编码者，需尤其注意C++11以后的单例模式的实现（为什么这么简化？怎么保证的（进阶））
+
+### 工厂模式
+
+https://blog.csdn.net/qq_55882840/article/details/139043332
+
+1.工厂模式简介      
+
+工厂模式的三种类型：
+- 简单工厂模式
+- 工厂方法模式
+- 抽象工厂模式
+工厂模式的作用是生产对象，可以简化代码、提高可维护性，并旦可以通过工厂类生产多种对象。简单工厂模式适用于创建简单的对象，工厂模式适用于创建复杂的对象，而抽象工厂模式适用于创建更复杂的对象。
+
+#### 2. 简单工厂模式
+
+简单工厂模式是一种创建型设计模式，旨在通过一个工厂方法来创建对象，而无需直接暴露对象的实例化逻辑。简单工厂模式通常包括一个工厂类和多个产品类。工厂类负责根据客户端的请求，返回对应的产品类实例。就是用户申请一个产品，由工厂负责创建对象。而不是用户自己创建对象。在简单工厂模式中，客户端只需要通过调用工厂类的方法，并传入相应的参数，而无需直接实例化产品类。工厂类根据客户端传入的参数决定创建哪个产品类的实例，并将实例返回给客户端。
+
+优点：
+
+封装了实例化的细节，使得客户端与具体产品类解耦，增强了灵活性和可维护性。客户端只需要知道需要什么类型的产品，而无需关心具体的实现细节。同时，如果需要新增产品类时，只需修改工厂类即可，不需要修改客户端代码。      
+缺点：
+
+简单工厂模式也有一些限制。例如，当需要创建多种类型的产品实例时，工厂类的代码可能会变得复杂，并且随着产品类型的增加，工厂类的责任也会越来越大。因此，在一些复杂的场景下，可能需要使用其他更灵活的创建型设计模式，如工厂方法模式或抽象工厂模式。总的来说，简单工厂模式提供了一种简单而灵活的方式来创建对象，对于一些简单的对象创建场景是很有用的。
+
+简单工厂模式
+```c++
+class Product {
+public:
+    virtual void operation() = 0;
+};
+class ConcreteProductA : public Product {
+public:
+    void operation() override {
+        // 具体产品A的操作实现
+    }
+};
+class ConcreteProductB : public Product {
+public:
+    void operation() override {
+        // 具体产品B的操作实现
+    }
+};
+```
+简单工厂类
+```c++
+class SimpleFactory {
+public:
+    static Product* createProduct(const std::string& type) {
+        if (type == "A") {
+            return new ConcreteProductA();
+        } else if (type == "B") {
+            return new ConcreteProductB();
+        } else {
+            return nullptr; // 可以添加默认处理逻辑或抛出异常
+        }
+    }
+};
+```
+客户端调用方式
+```c++
+int main() {
+    Product* productA = SimpleFactory::createProduct("A");
+    productA->operation(); // 调用具体产品A的操作
+    Product* productB = SimpleFactory::createProduct("B");
+    productB->operation(); // 调用具体产品B的操作
+    delete productA;
+    delete productB;
+    return 0;
+}
+```
+
+
+
+
+
+随着技术的不断进步，当前需要使用越来越多的方式来访问应用程序了。MVC 模式允许使用各种不同样式的视图来访问同一个服务端的代码，这得益于多个视图（如 WEB（HTTP）浏览器或者无线浏览器（WAP））能共享一个模型。
+
 ## STL
 
 C++ STL从广义来讲包括了三类:算法，容器和迭代器。

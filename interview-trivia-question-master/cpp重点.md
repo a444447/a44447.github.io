@@ -36,6 +36,8 @@ C++ STL从广义来讲包括了三类:算法，容器和迭代器。
    - unordered_set
    - unordered_multiset
 
+
+
 ### vector
 
 vector底层是一个**动态数组**，包含三个迭代器:
@@ -104,6 +106,158 @@ empty()用来检测容器是否为空的，clear()可以清空所有元素。但
 vector(Vec).swap(Vec); //将Vec的内存清除； 
 vector().swap(Vec); //清空Vec的内存；
 ```
+
+
+
+## 内存池
+
+在 C++ 中，**动态内存分配（new/malloc）** 可能存在性能开销和内存碎片化问题，尤其是频繁分配和释放小对象时，性能损耗尤为明显。**内存池（Memory Pool）** 主要用于优化以下方面：
+
+1. **减少分配开销**：`new`/`malloc` 可能会触发系统调用（如 `sbrk()` 或 `mmap()`），开销较大，而内存池可以提前预分配一大块内存，减少系统调用的次数。
+2. **减少内存碎片**：系统分配的内存可能会导致碎片化，影响程序长期运行的稳定性。内存池通过预先规划的管理方式，减少碎片。
+
+```c++
+#include <iostream>
+#include <vector>
+
+class MemoryPool {
+private:
+    struct Block {
+        Block* next;  // 指向下一个空闲块
+    };
+
+    Block* freeList; // 空闲链表的头指针
+    std::vector<void*> chunks; // 记录已分配的内存块（方便释放）
+    size_t blockSize;  // 每个对象的大小
+    size_t chunkSize;  // 每次分配多少个对象
+public:
+    MemoryPool(size_t blockSize, size_t chunkSize = 32)
+        : freeList(nullptr), blockSize(blockSize), chunkSize(chunkSize) {}
+
+    ~MemoryPool() {
+        // 释放所有分配的内存
+        for (void* chunk : chunks) {
+            free(chunk);
+        }
+    }
+
+    void* allocate() {
+        if (!freeList) {
+            allocateChunk();
+        }
+        Block* block = freeList;
+        freeList = freeList->next; // 从空闲链表取出一个块
+        return block;
+    }
+
+    void deallocate(void* ptr) {
+        Block* block = static_cast<Block*>(ptr);
+        block->next = freeList;
+        freeList = block; // 回收内存块到空闲链表
+    }
+
+private:
+    void allocateChunk() {
+        size_t chunkBytes = blockSize * chunkSize;
+        void* chunk = malloc(chunkBytes);
+        chunks.push_back(chunk);
+
+        // 将新分配的 chunk 分割成小块，并链接到 freeList
+        char* start = static_cast<char*>(chunk);
+        for (size_t i = 0; i < chunkSize; ++i) {
+            Block* block = reinterpret_cast<Block*>(start + i * blockSize);
+            block->next = freeList;
+            freeList = block;
+        }
+    }
+};
+
+// 示例使用
+struct TestObject {
+    int x, y, z;
+};
+
+int main() {
+    MemoryPool pool(sizeof(TestObject), 10);
+
+    TestObject* obj1 = static_cast<TestObject*>(pool.allocate());
+    obj1->x = 10; obj1->y = 20; obj1->z = 30;
+
+    std::cout << "Allocated object: " << obj1->x << ", " << obj1->y << ", " << obj1->z << std::endl;
+
+    pool.deallocate(obj1);
+
+    return 0;
+}
+
+```
+
+## extern"C"的用法
+
+为了能够**正确的在C++**代码中调用**C**语言的代码：在程序中加上extern "C"后，相当于告诉编译器这部分
+
+代码是C语言写的，因此要按照C语言进行编译，而不是C++；
+
+## 野指针、悬空指针
+
+野指针，指的是没有被初始化过的指针
+
+```c++
+int* p; // 未初始化
+ std::cout<< *p << std::endl; // 未初始化就被使用
+```
+
+悬空指针，指针最初指向的内存已经被释放了的一种指针。
+
+```c++
+int * p = nullptr;
+ int* p2 = new int;
+ 
+ p = p2;
+ delete p2;
+```
+
+
+
+
+
+## define宏定义和const的区别
+
+1. **编译阶段**
+
+   define是在编译的**预处理**阶段起作用，而const是在编译、运行的时候起作用
+
+2. **安全性**
+
+   define只做替换，不做类型检查和计算，也不求解，容易产生错误，一般最好加上一个大括号包含住
+
+   全部的内容，要不然很容易出错
+
+   const常量有数据类型，编译器可以对其进行类型安全检查
+
+3. define只是将宏名称进行替换，在内存中会产生多分相同的备份。const在程序运行中只有一份备份，
+
+**安全性**
+
+define只做替换，不做类型检查和计算，也不求解，容易产生错误，一般最好加上一个大括号包含住
+
+全部的内容，要不然很容易出错
+
+const常量有数据类型，编译器可以对其进行类型安全检查
+
+**内存占用**
+
+define只是将宏名称进行替换，在内存中会产生多分相同的备份。const在程序运行中只有一份备份，
+
+且可以执行常量折叠，能将复杂的的表达式计算出结果放入常量表
+
+宏替换发生在编译阶段之前，属于文本插入替换；const作用发生于编译过程中。
+
+宏不检查类型；const会检查数据类型。
+
+宏定义的数据没有分配内存空间，只是插入替换掉；const定义的变量只是值不能改变，但要分配内
+
+存空间。
 
 ## volatile 关键字
 

@@ -83,6 +83,62 @@ message RegisteDriverRsp
 
 ### driver
 
+#### BlenderSimDriver
+
+这是客户端连接服务器，发起请求的，发送心跳的核心模块
+
+##### try_connect()
+
+1. try_connect()提供了连接Master并且注册Driver的功能
+
+在gRPC中，通过`Stub`（存根）是**客户端用来调用远程 gRPC 服务器方法的对象**。它相当于 **客户端的代理**，封装了所有的 gRPC 方法，让客户端可以像调用本地函数一样调用远程方法。
+
+于是我们为了调用远程服务器提供的方法，就需要创建一个Stub对象，用于调用Master服务器。_channel是gRPC连接对象，**`_emulate` 是 `Stub`，它可以调用 `Render()`、`Move()`、`HeartBeatUser()` 等远程方法**
+
+使用stub调用方法的时候需要传入，**grpc::ClientContext context**，它是在 gRPC 客户端调用远程方法时，`grpc::ClientContext` **用于管理 RPC 调用的上下文信息**。
+
+2. 调用`RegisterDriver`来进行注册，然后等待返回的结果，获得自己的ID。
+
+##### led_update_batch()
+
+要发起渲染任务，就要设置好任务的信息
+
+```c++
+render_req.mutable_id()->set_serial(_driver_id);
+  render_req.set_task_count(task_count);
+  render_req.set_light_count(light_count);
+  for(const auto& val : leds) {
+      uint32_t rgb = (val.Intensity << 24) | (val.R << 16) | (val.G << 8) | val.B;
+      render_req.add_lights(rgb);
+  }
+```
+
++ 设置了id,任务数量,灯数量，每个灯的参数(亮度+RGB)
+
+然后就是通过Stub来调用远程方法`auto status = _emulate->Render(&context, render_req, &render_rsp);`
+
+然后解析返回的
+
++ width, height ，计算得到img_size=w*h
++ 读取后续的图片字节。
+
+##### 发送心跳
+
+很简单，就是一个定时器，每隔一秒调用stub提供的发送心跳方法
+
+```
+void DoHeartBeat() {
+    while(m_bRuning) {
+        grpc::ClientContext context;
+        blendersim::Serial oSerial;
+        blendersim::Status oStatus;
+        oSerial.set_serial(_driver_id);
+        _emulate->HeartBeatUser(&context, oSerial, &oStatus);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+}
+```
+
 
 
 ### mainnode

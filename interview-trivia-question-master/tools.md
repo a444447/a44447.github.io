@@ -237,7 +237,7 @@ git push origin --delete dev  # 删除远程分支
 
 ## Git Rebase
 
-### **1. 变基（Rebase）**
+### **变基（Rebase）**
 
 ```
 git rebase main  # 把当前分支变基到 main
@@ -253,7 +253,9 @@ git rebase main  # 把当前分支变基到 main
 - `git merge` 和 `git rebase` 的区别？
   - `merge` **保留历史**，`rebase` **让历史更清晰**（但会重写 commit）。
 
+`merge` 会创建一个新的合并提交，保留分支的历史记录。
 
+`rebase` 会将提交移到目标分支的顶端，没有合并提交。
 
 ## Git Stash（存储未提交修改)
 

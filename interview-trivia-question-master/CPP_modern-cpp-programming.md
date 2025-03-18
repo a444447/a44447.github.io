@@ -17,6 +17,114 @@ volatile int i = 10;
 >
 > ***注意，volatile依然不能代替线程同步，它只是保证了变量的值是从内存中读取，但是不能保证操作是原子的。***
 
+## 静态链接、动态链接
+
+1. 静态链接
+
+在编译时，所有**库代码（.a 或 .lib）**都会被复制到最终的可执行文件中。
+
+可执行文件包含了所有依赖的库，不需要额外的库文件。
+
+2. 动态链接
+
+在编译时，程序只会记录库的符号信息，真正的库代码不会被包含。
+
+在程序运行时，**动态库（.so 或 .dll）**会被操作系统加载，程序再去查找和调用库函数。
+
+```C++
+ldd my_program //查看动态库依赖
+```
+
+```c++
+g++ main.cpp -o program -static（静态）
+g++ main.cpp -o program -ldl（动态）
+```
+
+
+
+## 内存池
+
+在 C++ 中，**动态内存分配（new/malloc）** 可能存在性能开销和内存碎片化问题，尤其是频繁分配和释放小对象时，性能损耗尤为明显。**内存池（Memory Pool）** 主要用于优化以下方面：
+
+1. **减少分配开销**：`new`/`malloc` 可能会触发系统调用（如 `sbrk()` 或 `mmap()`），开销较大，而内存池可以提前预分配一大块内存，减少系统调用的次数。
+2. **减少内存碎片**：系统分配的内存可能会导致碎片化，影响程序长期运行的稳定性。内存池通过预先规划的管理方式，减少碎片。
+
+```c++
+#include <iostream>
+#include <vector>
+
+class MemoryPool {
+private:
+    struct Block {
+        Block* next;  // 指向下一个空闲块
+    };
+
+    Block* freeList; // 空闲链表的头指针
+    std::vector<void*> chunks; // 记录已分配的内存块（方便释放）
+    size_t blockSize;  // 每个对象的大小
+    size_t chunkSize;  // 每次分配多少个对象
+public:
+    MemoryPool(size_t blockSize, size_t chunkSize = 32)
+        : freeList(nullptr), blockSize(blockSize), chunkSize(chunkSize) {}
+
+    ~MemoryPool() {
+        // 释放所有分配的内存
+        for (void* chunk : chunks) {
+            free(chunk);
+        }
+    }
+
+    void* allocate() {
+        if (!freeList) {
+            allocateChunk();
+        }
+        Block* block = freeList;
+        freeList = freeList->next; // 从空闲链表取出一个块
+        return block;
+    }
+
+    void deallocate(void* ptr) {
+        Block* block = static_cast<Block*>(ptr);
+        block->next = freeList;
+        freeList = block; // 回收内存块到空闲链表
+    }
+
+private:
+    void allocateChunk() {
+        size_t chunkBytes = blockSize * chunkSize;
+        void* chunk = malloc(chunkBytes);
+        chunks.push_back(chunk);
+
+        // 将新分配的 chunk 分割成小块，并链接到 freeList
+        char* start = static_cast<char*>(chunk);
+        for (size_t i = 0; i < chunkSize; ++i) {
+            Block* block = reinterpret_cast<Block*>(start + i * blockSize);
+            block->next = freeList;
+            freeList = block;
+        }
+    }
+};
+
+// 示例使用
+struct TestObject {
+    int x, y, z;
+};
+
+int main() {
+    MemoryPool pool(sizeof(TestObject), 10);
+
+    TestObject* obj1 = static_cast<TestObject*>(pool.allocate());
+    obj1->x = 10; obj1->y = 20; obj1->z = 30;
+
+    std::cout << "Allocated object: " << obj1->x << ", " << obj1->y << ", " << obj1->z << std::endl;
+
+    pool.deallocate(obj1);
+
+    return 0;
+}
+
+```
+
 
 
 ## auto关键字

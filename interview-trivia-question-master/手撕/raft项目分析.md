@@ -94,3 +94,136 @@ Raft引入了`InstallSnapshot RPC`来补全丢失的`Log`, 具体来说过程如
 4. `Leader`稍后通过`AppendEntries`发送快照后的`Log`
 
 ## Raft-cpp实现梳理
+
+### 选举
+
+#### electionTimeoutTicker设计
+
+#### doEelection
+
+#### sendRequestVote
+
+#### Request
+
+### 日志复制与心跳机制
+
+#### 
+
+### kvServer
+
+#### kvServer如何保证线性一致性
+
+线性一致性： 线性一致性是指一个系统表现得就像只有一个服务器。在线性一致性系统中，执行历史是一系列的客户端请求，可以按照一个顺序排列，并且排列顺序与客户端请求的实际时间相符合。**每一个读操作都看到的是最近一次写入的值**。
+
+kvServer就是接受客户端请求，然后协调内部运行的raft与kvDB如何处理这个请求，最看下关键的成员变量:
+
++ `Raft m_raftNode`：这就是下层的Raft
++ `LockQueue<ApplyMsg> applyChan`： 实现了一个`LockQueue<>`，是一个并发的安全队列，来充当golang里面的channel结构。Raft实现中，也有一个`applyChan`，kvServer与下层的Raft就是通过这个channel进行通信的。
++ `Op`类：它是kvServer传给raft的command，包括了这些信息:
+
+```c++
+std::string Operation;  // "Get" "Put" "Append"
+std::string Key;
+std::string Value;
+std::string ClientId;  //客户端号码
+int RequestId;         //客户端号码请求的Request的序列号，为了保证线性一致性
+```
+
+
+
+对于通信部分，我们是使用的自己实现的rpc服务框架，它为客户端提供rpc服务，方法有:
+
+```protobuf
+rpc PutAppend(PutAppendArgs) returns(PutAppendReply);
+rpc Get (GetArgs) returns (GetReply);
+```
+
+再来看下当某个command被raft同意提交，于是需要apply到kvDB中，提供了
+
++ `ExecuteGetOpOnKVDB`:
+
+```c++
+//跳表中的接口
+m_skipList.search_element(op.Key, *value)
+如果成功找到了标记一个exist=true
+//更新kvServer中对应的client的最新请求完成编号
+m_lastRequestId[op.ClientId] = op.RequestId;
+```
+
++ `ExecutePutOpOnKVDB`
+
+```c++
+//调用接口
+ m_skipList.insert_set_element(op.Key, op.Value);
+//更新kvServer中对应的client的最新请求完成编号
+m_lastRequestId[op.ClientId] = op.RequestId;
+```
+
+#### RPC 服务架构
+
+我们使用protobuf定义了RPC通信消息结构，以及rpc服务与方法，然后使用其提供的protoc的工具生成了与服务相关的c++代码。
+
+我们的自己实现的服务框架提供了:
+
++ `Provider`: 服务发布端只需要继承protobuf生成的c++代码中对应的服务类，然后实现它提供的方法即可。然后就调用Notify()把服务进行预发布。最后调用Run，监听服务请求。我们的`Provider`会自动处理到来的连接，自动解析头部，然后并根据相应的事件（不同的服务方法请求），调用对应的服务提供的方法，并且负责传回给请求方。——因此在这个框架下，服务提供方只需要写自己的业务逻辑就行。
++ `Channel`: protobuf生成的c++代码中，有专门给客户端调用的Stub类，这个Stub类实现了服务的所有方法。它实现的代码是调用_channel->CallMethod()。因此我们的实现了一个protobuf::Channel的继承类，实现了它的CallMethod()方法。我们实现的CallMethod()方法包含了与方法提供端建立连接，并且添加自定义的头部（防止TCP粘包拆包），与参数一起序列化后传给服务提供端，等待返回的数据并反序列化到response结构体中。——因此在这个框架下，用户只需要创建一个Channel对象，然后以该Channel对象构造一个Stub类就行，然后就能直接用Stub调用所有方法。
+
+
+
+----
+
+所以KvServer的初始化流程就是：
+
+1. 创建KvServer的编号、与下游raft沟通的channel、Raft节点
+2. 开启kvServer的rpc服务，这是为客户端提供Get,PutAppend。注意我们的KVserver就是继承了对应的rpc服务类，并实现了Get、PutAppend方法。
+3. 启动一个raft节点的rpc服务，为与其他raft通信提供方法。注意我们的Raft类本身就是继承了对应的rpc服务类
+4. 与其他的raft节点建立连接，从配置文件中读取每个raft node的ip port,然后分别创建Channel，然后用这个Channel分别创建对各个raft节点的Stub对象，就能与它们通信了
+5. 等到所有连接完成后，再调用raft->init，启动raft
+6. 初始化kvDB，需要从persist部分中检查是否有快照，如果有的话要读入快照。
+7. kvServer进入训话，不断地等待applyChan中的内容，如果有内容就开始执行应用command到kvDB的逻辑。
+
+#### ApplyChan有内容后的流程
+
+当ApplyChan有内容后，kvServer从阻塞中恢复，如果message中应用command是true，那么就可以进行执行流程：
+
+1. 如果这个commandIndex比最新的快照索引还要小，说明已经在快照中了，于是就放弃这次提交。
+2. 否则,判断这个command是否是重复command。如果是就放弃这个提交，并返回消息给client
+3. 如果不是，则根据对应的Op执行到状态机中
+4. 我们之前设定了`maxRaftLog`，需要检查当前的log是否太大，如果太大需要制作快照。
+5. 传回消息给client
+
+#### kvServer提供的rpc方法
+
+以`PutAppend`为例：
+
+1. 把args中的参数放到Op中，这个Op是我们KvServer传给Raft的command
+2. 调用m_raft->Start
+3. 如果不是Leader,会直接返回。PutAppend也返回消息给客户端，并设置自己不是Leader
+4. 向`waitApplyCh`中添加这个raft日志，等待这个raft日志被同意commit。
+5. 如果在规定时间内没有等待到，就设置超时错误，但是如果本身是一个重复的请求，就还是返回ok
+6. 否则返回成功。
+
+### Clerk
+
+clerk的成员变量如下:
+
++ `std::vector<std::shared_ptr<raftServerRpcUtil>> m_servers`: 保存所有kvServer的信息
++ `m_clientID`： 唯一标识自己client号
++ `int m_requestId`: 一个递增的请求编号，它与<m_clientID,m_requestId>标识了一个唯一的请求
++ `int m_recentLeaderId`: 记录最近的leader节点编号
+
+其Init主要做了：
+
+1. 从配置参数中读取所有kvServer的ip port
+2. 通过我们的rpc服务框架，分别建立Channel(ip,port)对象，再用这些对象分别建立Stub对象
+
+以`PutAppend`为例看下Clerk的请求
+
+1. `++m_requestID`
+2. `server = m_recentLeader`，注意，不一定依然是leader
+3. 接下来是一个while，先把request,response都创建好，然后调用rpc方法PutAppend。
+4. 根据reply中的err来判断是否调用成功
+5. 对于ErrorWrongLeader，,通过`(server+1)%m_servers.size()`直到找到leader
+
+6. 如果成功，保存当前的`m_recentLeaderId=server`
+

@@ -2,6 +2,65 @@
 
 
 
+
+
+## socket相关
+
+### 判断socket fd是否关闭，开启的事件
+
+**判断 socket fd 是否已关闭**：
+
+- 可读事件触发后读取数据，`read()` 返回 `0` 表示对端关闭。
+- 检测异常事件如 `EPOLLHUP`、`POLLHUP` 或通过 `getsockopt()` 检查错误状态。
+
+通过 `getsockopt()` 获取套接字的状态信息：
+
+- 使用选项 `SO_ERROR` 来查看 `socket fd` 上是否有错误。如果返回错误值（如 `ECONNRESET`），可以判断 `socket fd` 已经无法再使用。
+
+```c++
+if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
+    // 检测失败
+}
+```
+
+### UDP调用connect与不调用connect
+
+1. 不调用： 不调用connect的话，其实就是每次调用`sendto`发送的时候都需要提供目标源地址，并且调用`recvfrom`的时候可以获得数据包来源的`IP`和端口号
+
+比较适用于：广播多播场景（需要给多个目标发送数据包）
+
+多个客户端与服务端通信（UDP服务器可以接受来自多个客户端的数据，因此不需要对目标地址进程绑定）
+
+2. 调用 **connect()**的UDP
+
+虽然UDP是无连接协议，但是调用`connect`后，会对`socket`行为作如下设置:**绑定固定目标地址：**
+
+- 调用 `connect()` 后，UDP 的 `socket` 会将目标地址（`IP` 和 **端口号**）绑定到套接字：
+
+```c++
+connect(socket_fd, (struct sockaddr*)&dest_addr, sizeof(dest_addr));
+```
+
++ 可以直接调用`send`与`recv`
+
+```c++
+send(socket_fd, buffer, length, 0);
+recv(socket_fd, buffer, sizeof(buffer), 0);
+```
+
++ **丢弃非目标地址的数据包：**一旦调用 `connect()` 绑定了目标地址的 `socket`，接收到的数据包如果不是来自绑定的目标地址，内核会自动丢弃这些数据包，而不传递到应用层。
+
+> 注意使用普通`sendto`，如果目标地址不可达，错误通常被内核忽略；
+>
+> 而调用了 `connect()` 后，`send() / recv()` 会直接报告通信失败等错误，这使得错误处理更加及时。
+
+**判断 socket fd 可读**：
+
+- 检测 `EPOLLIN`、`POLLIN` 或 `FD_ISSET` 可读事件。
+- 调用 `read()` 或 `recv()` 检查数据是否到达，返回大于 `0` 表明有数据到达。
+
+
+
 ## 设计模式
 
 ### c++单例模式
@@ -35,7 +94,7 @@ C++ STL从广义来讲包括了三类:算法，容器和迭代器。
 
 ### allocator
 
-
+stl容器都有一个allocator的模版参数，它使得我们可以自定义内存的分配方式。
 
 ### 容器总结
 

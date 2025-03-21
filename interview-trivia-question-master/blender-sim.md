@@ -271,7 +271,22 @@ grpc::CreateChannel("localhost:50051", grpc::InsecureChannelCredentials());
 _emulate->do_(&context, request, response)
 ```
 
+### 服务端
 
+```c++
+//1.实例化异步服务器
+helloworld::Greeter::AsyncService service;
+//2.创建一个工厂类实例，构造器
+ServerBuilder builder;
+//3.使用构造器的方法来监听客户端请求的地址和端口AddListeningPort()。
+builder.AddListeningPort("0.0.0.0:50051", InsecureServerCredentials());
+//4.向构建器注册服务实现
+builder.RegisterService(&service);
+//5.
+auto cq = builder.AddCompletionQueue();
+//6.启动服务创建并启动RPC服务器。
+auto server = builder.BuildAndStart();
+```
 
 
 

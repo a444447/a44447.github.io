@@ -250,6 +250,33 @@ clerk的成员变量如下:
 
 通过这种方式，**可以保证最终每个元素被选入水塘的概率是相同的**。
 
+
+
+## gRPC基本客户端与服务端
+
+### 客户端
+
+```c++
+//建立stub（存根），存根需要传入一个channel
+//创建一个channel指定要连接的服务器地址和端口
+grpc::CreateChannel("localhost:50051", grpc::InsecureChannelCredentials());
+ _emulate = blendersim::Emulate::NewStub(_channel);
+```
+
+之后，调用方法的时候可以传入`context`，可以控制rpc的配置
+
+```c++
+//...创建一个request
+
+_emulate->do_(&context, request, response)
+```
+
+
+
+
+
+
+
 ## grpc通信设计
 
 项目定义的通信消息以及提供的服务于方法尽量与我们在原本真实场景规定的驱动一致。
@@ -944,6 +971,14 @@ m_roNodeConnections.updateConnection(roSerial.serial());
  ✅ **负责 `gRPC` 服务器 (`SlaveEmulateServiceImpl`) 的启动**
  ✅ **初始化 `负载均衡 (CLoadBalancer)`，任务调度 (`CGTaskTable`)**
  ✅ **管理 `SCBControler`，用于控制 `Blender` 进程**
+
+
+
+#### `Router.h`
+
+`Router.h`中实现了一个单例类Router，它初始化了与mainnode的gRPC客户端、与blender进程通信的bus。
+
+在初始化gRPC客户端后，就可以调用注册节点的方法来向mainnode注册自身，并且启动一个定期调用心跳方法的线程。
 
 #### `SlaveEmulateServiceImpl.h`
 

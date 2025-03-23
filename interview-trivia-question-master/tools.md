@@ -68,6 +68,8 @@ New value = 1
 
 一般我们调试程序都是在程序挂掉了的时候，所以我们大部分时候调试的都是coredump。
 
+coredump就是进程崩溃的一瞬间进程在内存中的快照.会把进程此刻的内存,寄存器状态,运行栈等信息转储保存在一个文件里.
+
 > coredump是什么？
 >
 > Core Dump（核心转储）是一种 **崩溃快照**，当程序由于 **严重错误（如段错误 SIGSEGV）** 终止时，操作系统会生成一个包含 **程序运行时内存状态** 的文件，通常叫做 `core` 或 `core.<PID>`（进程 ID）。
@@ -132,7 +134,10 @@ Program terminated with signal SIGSEGV, Segmentation fault.
 (gdb) down
 ```
 
+### 调试思路
 
+1. 查看调用堆栈，找到崩溃原因，bt
+2. 看到了堆栈后，通过f index进入堆栈。
 
 
 
@@ -271,3 +276,99 @@ git stash pop  # 取出暂存修改
 
 - **如何暂存未提交的修改？**
 - **如何取出 `stash`？**
+
+# CMake
+
+cmake是一个跨平台的自动化构建系统，主要是管理工程的构建过程。通过配置CMakeLists.txt来指导编译和链接过程。
+
+## 基本
+
+```c++
+cmake_minimum_required(VERSION x.x): 指定项目需要的最低CMake版本。
+project(ProjectName): 定义项目的名称和使用的语言。
+add_executable(TargetName source1 source2 ...): 添加一个可执行目标，并指定其源文件。
+add_library(TargetName type source1 source2 ...): 添加一个库目标，并指定其类型（静态或动态）和源文件。
+find_package(PackageName): 查找并加载外部依赖包。
+target_link_libraries(TargetName library1 library2 ...): 指定目标链接的库。
+```
+
++ find_package可以直接找到并且加载库
++ 找到依赖库后，使用target_link_libraries来链接库，并使用target_include_directories添加头文件
+
+在构建比较大型的项目时，使用`add_subdirectory`命令来包含子目录，这样每个子目录可以有其自己的CMakeLists.txt文件来管理其源文件和依赖关系。
+
+## blender-sim CMakeLists.txt实例解析
+
+# linux命令
+
+- 切换用户名：su 用户名
+- 修改密码：passwd 用户名
+- 文件目录权限修改：chmod命令
+- 创建目录：mkdir 目录
+- 创建文件：touch 文件
+- 列出目录文件：ls、ll
+- 搜索文件：find -name “文件名” （还有多种查询文件的方式，比如文件大小、更新时间、文件类型）
+- 查看文件类型：file 文件
+- 调整路径：cd. 、cd.. 、cd 具体路径
+- 查看当前路径：pwd
+- 压缩/解压文件：tar -zcvf【待压缩文件】/-zxvf【待解压文件】、gzip
+- 复制文件：cp 原文件 目标位置
+- 剪切、移动：mv 原文件 目标文件
+- 删除文件：rm 【选项】【文件】（选项-f，强制删除）
+- 比较文件差异：diff
+- 浏览文件：cat、vi、vim、tail、more、head
+- 查看文件行数、单词数、字符数：wc -l、-w、-c
+- 管道符连接两个或多个命令：tail xxx ｜ gerp xxx
+- 搜索文件中内容：grep [选项] [模式] [文件名]
+- 安装卸载：rpm
+- 查看性能指标：
+  - top（cpu、内存等）
+  - vmstat(cpu、内存、磁盘等）
+  - iostat（i/o读写）
+  - sar（cpu等比较全的工具）
+  - free（内存使用情况）
+  - netstat网络情况
+  - ss(netstat替代品)
+- 进程查看：ps
+- 杀掉进程：kill
+- 文件内容剪切：cut
+- 粘贴命令：paste
+- 排序：sort
+
+## ps详解
+
+ps命令用来列出系统中当前运行的那些进程。ps命令列出的是当前那些进程的快照，就是执行ps命令的那个时刻的那些进程，如果想要动态的显示进程信息，就可以使用**top**命令。
+
+- 1. 运行(正在运行或在运行队列中等待)
+  2. 中断(休眠中, 受阻, 在等待某个条件的形成或接受到信号)
+  3. 不可中断(收到信号不唤醒和不可运行, 进程必须等待直到有中断发生)
+  4. 僵死(进程已终止, 但进程描述符存在, 直到父进程调用wait4()系统调用后释放)
+  5. 停止(进程收到SIGSTOP, SIGSTP, SIGTIN, SIGTOU信号后停止运行运行)
+
+ps工具标识进程的5种状态码:
+
+- D 不可中断 uninterruptible sleep (usually IO)
+- R 运行 runnable (on run queue)
+- S 中断 sleeping
+- T 停止 traced or stopped
+- Z 僵死 a defunct (”zombie”) process
+
+a 显示所有进程
+ -a 显示同一终端下的所有程序
+ -A 显示所有进程
+ c 显示进程的真实名称
+ -N 反向选择
+ -e 等于“-A”
+ e 显示环境变量
+ f 显示程序间的关系
+ -H 显示树状结构
+ r 显示当前终端的进程
+ T 显示当前终端的所有程序
+ u 指定用户的所有进程
+ -au 显示较详细的资讯
+ aux 显示所有包含其他使用者的行程
+ -C<命令> 列出指定命令的状况
+ --lines<行数> 每页显示的行数
+ --width<字符数> 每页显示的字符数
+ --help 显示帮助信息
+ --version 显示版本显示

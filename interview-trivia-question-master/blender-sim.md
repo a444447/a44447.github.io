@@ -229,7 +229,35 @@ clerk的成员变量如下:
 
 6. 如果成功，保存当前的`m_recentLeaderId=server`
 
+## 面试题相关
 
+### 介绍CAP？为什么CAP最多只能满足两个？Raft数据库如何设计实现a和p
+
+C（一致性）:所有节点在同一时间看到相同数据,比如读写强一致
+
+A（可用性）：每个请求都会在有限时间内得到响应（非错误），比如服务永不宕机
+
+P（分区容错）：网络分区时系统仍能继续工作，比如节点间丢包／断链不宕机
+
+由于网络可能会发生 **分区（Partition）**，因此 **一个分布式系统必须选择在 C 和 A 之间做权衡**。
+
+然后Raft是一个天然的CP算法，Leader‑based log replication + majority quorum 
+
+如果要改造成一个AP算法，就可以像ZAB一样，**读操作本地化 (Read‑only on Followers)**，Followers 提供**弱一致**（可能读到旧数据），Leader 则保证强一致
+
+### raft通信框架一般是什么IO模型？一般底层网络通信的IO模型是什么？
+
+gRPC->Proactor模型。
+
+### 为什么要超过半数节点复制日志后leader才提交更新？
+
+Raft 要求每次选举的候选人必须拥有最新的已提交日志条目（即包含最大 `term` 和索引）。
+
+如果 Leader 在提交前就返回成功（但多数节点尚未持久化），当这个 Leader 崩溃，新 Leader 可能 **看不到** 这条未真正持久化的日志，从而造成 **已确认的写操作丢失** → 违反一致性。
+
+### 使用跳表比使用哈希表有什么好处
+
+我们选择跳表而非哈希表，主要因为跳表不仅能提供 O(log n) 的稳定查询性能，而且天然支持有序遍历和范围查询，这对于分布式 KV 的扫描、分页和数据迁移非常重要。哈希表虽在平均查找上是 O(1)，但碰撞处理和扩容都需要全表 rehash
 
 # blender-sim
 
@@ -1014,6 +1042,8 @@ CGTaskTable::Instance()->InsertTask(pid, std::move(poMsg), [this, &vecTasksRsp, 
 
 #### `CGTaskTable.h`
 
+![image-20250322012914040](assets/image-20250322012914040.png)
+
 `CGTaskTable.h`负责控制渲染任务与blender进程之间的交流，它有：
 
 + `TCB`类:  任务控制块 - Task Control Block
@@ -1039,6 +1069,10 @@ TCB是一个任务控制块，它存储了一个任务所有的信息，包括�
 我们还定义了一个`using TCBDict = std::unordered_map<uint32_t, std::unique_ptr<TCB>>;`，表示任务号与TCB的映射关系。
 
 ##### CRenderTaskQueue
+
+实际上就是做了一个线程池的作用。初始化一系列线程（数量和运行的blender进程数量一致），并不断从内部的队列中等待任务的到来。有任务就取出，没有任务就等待（ cv.wait),当`Enque`后通过唤醒一个正在等待任务的线程。
+
+
 
 维护了一个TCB队列,`std::deque<TCB*> m_oTaskQueue;`，提供了下面的方法:
 
@@ -1079,3 +1113,339 @@ TCB是一个任务控制块，它存储了一个任务所有的信息，包括�
 + `taskToPidMap-->std::multimap<uint32_t, pid_t>` 按 `任务数` 排序 pid
 + 然后持续循环这样一个流程，直到任务被分配完: 取出拥有任务最少的PID，然后从,`taskToPidMap `移除；分配一个任务给它，记录数量变化，然后又插入回taskToPidMap .
 
+### jbus
+
+jbus是**本地进程间通信（IPC）**的框架，其底层基于\**共享内存（shared memory）\**进行数据交换，提供了\**同步与异步的读写接口**，并设计了通道（Channel）和通道管理器（Channel Manager）的概念。
+
+核心的模块如下：
+
+**CChannel（抽象类）**
+
+位于 `jbus::CChannel`，表示两个进程之间的通信通道（一个方向），接口设计非常完整，支持：
+
+- 同步读写
+- 异步读写（含回调函数）
+- 广播写（通过 set<CChannel*> 构造）
+- 数据深拷贝与异步生命周期管理
+- 状态检测、资源查询
+
+ **CGChannelMgr（通道管理器）**
+
+是一个**工厂类 + 管理器类**，负责创建和维护多个通道（`CChannel`）实例。
+
+设计要点：
+
+- 每次调用 `GetChannel` 会返回新的 `CChannel` 实例（或复用），但**旧的 Channel 不能继续使用**（有注释强调：作废）。
+- `Update` 是异步机制的全局驱动接口，应该被主循环周期性调用，触发所有异步回调。
+- 
+
+`CChannel` 的构造函数依赖 `CShmInstance` 对象，代表与 IPC 通道对应的共享内存区。这说明：
+
+- jbus通信不依赖 socket、管道等传统方式，而是通过**内存映射区（共享内存）**进行数据传输。
+
+#### CShmInstance
+
+##### CShmInstance
+
+`CShmInstance` 表示一块共享内存实例，内部维护了一个环形队列。共享内存的实例包括了两部分`CshmHeader`+ `数据区域`
+
+**注意我们的环形队列使用的是空格了**
+
+
+
+实例中还有两个成员：
+
++ void* m_pAddr{nullptr}; // 指向共享内存头部的指针
++ void* m_pData{nullptr};  // 指针数据区域头部的指针
++ m_ullCapacity //数据区域的容量大小
+
+来看下一个Header的结构
+
+```c++
+struct CShmHeader
+{
+    size_t ullTail{0}; // Cycle queue tail
+    size_t ullHead{0}; // Cycle queue head
+};
+```
+
+header指明了这个共享内存区域的可读数据范围。
+
+```c++
+共享内存结构（总大小 = capacity）
+┌──────────────────────────────────────────────────────┐
+│                    CShmHeader（固定头部）             │
+│  [ullHead] → 读取指针                                 │
+│  [ullTail] → 写入指针                                 │
+├──────────────────────────────────────────────────────┤
+│                                                      │
+│                    数据区域（循环缓冲）               │
+│                                                      │
+│  ←── 可读数据区域（从 head 到 tail）──                │
+│                                                      │
+│     若 tail < head，则 tail 到末尾 + 起点到 head      │
+│                                                      │
+└──────────────────────────────────────────────────────┘
+```
+
+介绍一下核心函数的数显
+
+###### **Write**
+
+由于我们是环形队列，所以可能会存在回绕的情况，也就是tail指针在head指针的前面。
+
+所以我们的写入需要分情况讨论：
+
++ tail > head,也就是没有回绕，也是当前已用区域就是`tail-head`，可用的剩下就是`cap - tail`
++ tail <= head,发生了回绕，那么剩下的可用区域就是`tail - pDHead`.
+
+```c++
+1.如果没有发生回绕
+    1.1 如果第一段数据足够填充数据 m_ullCapacity - m_pstHeader->ullTail >= ullWriteSize
+    	使用memcpy:memcpy(static_cast<char*>(m_pData) + m_pstHeader->ullTail, data, ullWriteSize);
+		更新tail:m_pstHeader->ullTail = (m_pstHeader->ullTail + ullWriteSize) % m_ullCapacity;
+    1.2 如果第一段数据不够，就还需要第二段
+        memcpy(static_cast<char*>(m_pData) + m_pstHeader->ullTail, data, ullFirstSize);
+        memcpy(m_pData, static_cast<const char*>(data) + ullFirstSize, ullWriteSize - ullFirstSize);
+        m_pstHeader->ullTail = ullWriteSize - ullFirstSize;
+
+[共享内存区域]
+ ┌────────────────────────────┬────────────┬──────────────┐
+ │ 已写数据（不可写）         │ 尾部剩余50B │ 起始部分50B   │
+ │                            │ <- 写第1段 │ <- 写第2段   │
+ └────────────────────────────┴────────────┴──────────────┘
+                             ↑tail          ↑最终 tail = 50
+2. 发生了回绕
+     那么[tail,head]这个区域是空的，那么使用memcpy(static_cast<char*>(m_pData) + tail, data, ullWriteSize)
+     更新tail=tail+writeSize
+```
+
+###### read
+
+我们的read引入了预读机制
+
+> **从共享内存中读取数据**，但 **不把它标记为“已读”** —— 即不移动 `head` 指针。
+
+也就是当预读时，我们只是提前看了它，但是没有正式消费。我们把这个也可以把这称呼为`异步滑动窗口`
+
++ 异步指的是你不会立刻消费数据，而是“等一会儿处理”
++ 是指你可以“预扫一部分数据”，然后滑动（Seek）窗口跳过它或再读它
+
+我们如何移动这个窗口，就是通过`m_ullSeek`这个指针，通过设置这个指针的位置，来移动窗口。
+
+```C++
+1.当调用Seek(offset)，表示暂时跳过offset这么多的内容，读取后面的内容。因此计算可读取的数据量、读取时的header都要考虑这个seek指针：
+    size_t ullReadSize = std::min(ullCurSize - m_ullSeek, size);                   // 计算可以读取的数据量
+    size_t ullNewHeader = (m_pstHeader->ullHead + m_ullSeek) % m_ullCapacity;      // 计算实际读取时的偏移
+2.然后就是和写的一样，判断是否回绕。
+    2.1 如果没有回绕，直接读取一段内容(tail-newHeader);然后更新newheader += readsize
+    2.2 如果回绕，先判断第一段是否满足：cap-newheader >= readsize;如果不满足还要继续读第二部分pData开头的数据
+3.判断是否开启预读bPeek,如果是那么不更新Header;否则更新Header.
+```
+
+
+
+
+
+
+
+##### CShmManager
+
+`CShmManager` 类管理系统中所有共享内存的注册、创建、获取操作。提供下面的方法：
+
++ CreateShm(key, size)
++ RegisterShm(key)
++ GetShm(key)
+
+维护了一个map,记录了所有已经注册的共享内存。是映射key与对应共享内存对象。
+
+###### CreateShm
+
+
+
+1. 创建参数是一个key与size
+2. 根据key去注册表中查找是否已经存在相同key的共享内存。
+3. 调用系统API：
+
+```C++
+int iFlag = IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR; //如果不带 IPC_CREAT，只查找已有的共享内存
+int iId = shmget(key, size, iFlag);
+```
+
+4. 创建成功后，调用注册`RegisterShm(key)`
+
+###### RegisterShm
+
+1.  根据传入的key找到共享内存的id
+
+   ```c++
+   如果 key 不存在，会返回 -1
+   不会新建共享内存（用于 consumer attach）
+   int iFlag = S_IRUSR | S_IWUSR;
+   int iId = shmget(key, 0, iFlag); // get shm id
+   ```
+
+   
+
+2. 下面是 **关键一步**，把共享内存映射到当前的进程的地址空间，只有这样才能访问这个共享内存。
+
+```c++
+void* pShmAddr = shmat(shmid, nullptr, 0); //void* shmat(int shmid, const void* shmaddr, int shmflg);第二位指定nullptr表示让系统指定映射的地址
+```
+
+3. 映射完毕后，通过`shmctl`获得共享内存的信息结构
+
+```c++\
+shmctl(iId, IPC_STAT, &stShmInfo);//把这个共享内存的信息绑定到stShmInfo中，这是一个shmid_ds结构，描述共享内存段的元数据
+```
+
+4. 然后创建我们把这个共享内存用来创建一个CShmInstance，方便读取与写入
+
+```c++
+m_mapShm[key] = CShmInstance::Create(iId, pShmAddr, ullSize);
+```
+
+#### CChannel
+
+有了创建共享内存，以及操作共享内存读写的方法后，就是需要建立进程之间通信的通道。
+
+##### CChannelHeader
+
+我们通道之间传输的就是带有Header的结构化消息包。
+
+
+
+##### 写入
+
+写入流程（同步和异步都是类似）
+
+1. 拆包：
+   - 将原始数据拆成多个 `[Header + Payload]` 包
+   - 每个包最多写 `(capacity - sizeof(Header))` 字节数据
+2. 写入逻辑：
+   - 先 `Write(Header)`，再 `Write(Payload)`
+   - 自动填入 Begin / Mid / End 三种状态，也就是加入了开始包、中间包、结束包。
+   - 对于 heartbeat 包加额外标志位
+3. 超时控制：
+   - `Write()` 会注册一个计时器，超过给定 `timeval` 即终止返回 `TIMEOUT`
+
+###### 异步读分析
+
+异步实现是 **纯定时器驱动 + 队列轮询式调度**，非常高效且易控：
+
+- 每个 `AsyncNode` 包含数据指针、状态、定时器、回调函数等
+- 你调用 `AsyncWrite()` 后，会把任务放入 `m_oAsyncWriteList`
+- 定期调用 `Update()` 会调度这些任务：
+  - 检查容量 → 尝试写入一部分
+  - 记录已写字节数 → 回调通知
+  - 超时移入 `m_oAsyncOutTimeList`，触发 `TIMEOUT` 回调
+
+###### 心跳
+
+心跳机制：保证对端是否存活
+
+ `CChannelHeartBeatTimer` 实现了：
+
+- 周期性发送一个特殊格式的心跳包（使用 `AsyncWrite` 写一个 `CHeartBeatPack`）
+- 若下一个周期未收到心跳回应 → 设置 `m_bPeerAlive = false`
+- `CheckAlive()` 提供对外判断通道是否健康
+
+##### 读入
+
+读取流程（Read / AsyncRead）
+
+1. 读出 `Header`，验证 MagicNum、长度、状态
+2. 检查是否 `Begin` 包，没有则清空读取状态
+3. 分配 buffer，累积读取完整包（可多段）
+4. 遇到 `End` 表示一条消息完成，返回数据
+5. 遇到 `HeartBeat` 自动识别处理，不返回给上层
+
+#### CChannelMgr
+
+从配置文件中读取通信对（IP对 + 共享内存 key + 缓冲区大小），自动创建 `CChannel`，并按源/目标 IP 进行管理，供 `GetChannel()` 接口统一访问。
+
+```c++
+╭───────────────╮
+│ config.yaml   │
+╰────┬──────────╯
+     ↓
+╭──────────────────────────────╮
+│ CGChannelMgrImpl             │
+│ ├── m_oChannelMap[src,dst]   │ → CChannel
+│ ├── m_oChannelListMap[src]   │ → {CChannel*, CChannel*, ...}
+│ ├── m_oBroadChannleMap[src]  │ → CChannelBroadCast
+╰──────────────────────────────╯
+
+```
+
+说一下我们的项目中是如何在blender进程与渲染节点的gRPC服务端建立管道的。
+
+首先对于每个blender进程我们以SCB类来描述。通过从yaml文件中阅读配置的方式，初始化几个SCB实例。
+
+`SCBControler::register_scb_from_yaml(...)`
+
+从 YAML 配置文件中读取了：
+
+- `BLENDER_SCRIPT`, `BLENDER_FILE`
+- 以及一个 `Node => Slave` 映射关系（从 `ConfigParser::getChannelsMap()` 提供）
+
+对于每一对 Node 和 Slave：
+
+```
+register_scb(std::make_unique<SCB>(blender_file, blender_script, Slave, Node, 0));
+```
+
+- 构造了一个 `SCB` 实例，其中保存了：
+  - `srcip = Slave`
+  - `dstip = Node`
+- 将其加入 `_scb_list` 列表中，表示一个受控渲染进程
+
+注册好SCB后，通过SCB管理器来执行`run_all()`: 启动所有SCB对应的blender子进程，通过fork()->exec()实现。
+
+`**GetSCBChannel(pid)` 会调用 `CGChannelMgr::GetChannel(...)`
+
+```
+m_poChannelMgr->GetChannel(dstip, srcip);
+```
+
+- 注意参数顺序：**Node 是 dst，Slave 是 src**
+- 它会触发 `CGChannelMgrImpl::GetChannel(sSrcIp, sDstIp)` 查找已注册通道
+- 如果未绑定，会自动调用 `Bind(src, dst)` 配对方向
+- 返回的是一个 `CChannelImpl*` 或 `CChannelBroadCast*`
+
+```c++
+main
+ └── SCBControler::register_scb_from_yaml()
+       ├─ 解析 blender 脚本和通道信息
+       ├─ 调用 ConfigParser::getChannelsMap()
+       ├─ 构建 SCB(srcip, dstip)
+       │
+       └─ ✨ m_poChannelMgr->GetChannel(dstip, srcip)
+              ↳ 自动初始化 CChannelImpl（或 CChannelBroadCast）
+```
+
+## 零拷贝
+
+**零拷贝（Zero‑Copy）** 指的是在 I/O 数据传输过程中，避免用户空间与内核空间之间的额外数据拷贝，从而减少 CPU 占用、降低内存带宽消耗，提高吞吐量和性能。
+
+- 传统读写（`read()`→用户缓冲区→`write()`）会产生至少两次内核↔用户拷贝
+- 每次拷贝都消耗 CPU 周期、增加内存带宽压力
+- 对高并发、大数据量场景影响尤甚
+
+| `sendfile()`         | 文件→Socket | 内核直接把页缓存发送到网卡       | 最简单       | 只能文件→Socket            |
+| -------------------- | ----------- | -------------------------------- | ------------ | -------------------------- |
+| `mmap()` + `write()` | 文件映射    | 文件映射到用户空间、内核无需拷贝 | 支持随机读写 | 还会一次从内核读到用户空间 |
+
+<img src="https://cdn.xiaolincoding.com/gh/xiaolincoder/ImageHost2/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/%E9%9B%B6%E6%8B%B7%E8%B4%9D/mmap%20%2B%20write%20%E9%9B%B6%E6%8B%B7%E8%B4%9D.png" style="zoom:50%;" />
+
+
+
+
+
+<img src="https://cdn.xiaolincoding.com/gh/xiaolincoder/ImageHost2/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/%E9%9B%B6%E6%8B%B7%E8%B4%9D/senfile-3%E6%AC%A1%E6%8B%B7%E8%B4%9D.png" alt="img|" style="zoom:50%;" />
+
+Linux 使用 **页缓存(page cache)** 存储文件数据
+
+零拷贝 API 都是在内核内部操作页帧而非用户缓冲区
+
+最终通过 DMA 让网卡直接从内核缓冲区读/写

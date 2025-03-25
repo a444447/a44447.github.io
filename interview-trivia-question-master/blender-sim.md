@@ -269,7 +269,93 @@ Raft 要求每次选举的候选人必须拥有最新的已提交日志条目（
 
 工作节点：
 
+对于到来的每个任务，都封装成一个TCB对象，每个 TCB 持有：
+• `Message`（请求数据）
+• `FinishedCB`/`ExceptionCB` 回调
+• `TaskRunningCB` 状态通知
 
+好处是可以将“发送请求 → 等待响应 → 处理回调”逻辑封装成独立对象，解耦调度队列（Invoker）与执行细节（Receiver）。
+• 支持任务排队、取消、重试等操作的统一接口
+• 易于扩展（新增日志、超时重试仅需改动 TCB 本身）
+
+工作节点初始化的时候，根据配置文件启动blender子进程，将 Blender 子进程的启动参数与生命周期管理封装为对象，SCB 内部构建 execvp 所需的 `args_t`、维护进程 PID 和状态。
+
+将底层 OS 进程调用与高层逻辑隔离
+• 提供单一责任：仅负责 Blender 进程的启动/停止/状态
+• 便于将来替换为不同渲染后端（仅需修改 SCB，不影响上层调度）
+
++ SCB 不直接暴露 execvp、fork、signal 等细节；外部只需通过 `SCBControler` 拿到 SCB 实例，就能安全地启动/终止 Blender 进程。
+
+---
+
+上面是把任务与进程封装起来的结构，下面是工作节点任务管理的核心：
+
+| **CGTaskTable**      | **Singleton + Thread‑Safe Task Registry** | — 全局维护所有待执行和正在执行任务的元数据 (TCB) — 生成、回收全局唯一任务 ID — 协调任务完成后的清理与回调通知 | 需要跨线程、跨模块共享、修改任务状态；保证单一全局视图 | • **集中管理**：所有任务状态和回调在一个地方可追踪、调试 • **线程安全**：使用 shared_mutex 支持多读少写，减少锁竞争 • **唯一性保证**：SerialDistributor 生成/回收任务 ID，防止冲突 • **解耦调用者**：上层只需 InsertTask，无需处理同步或生命周期 |
+| -------------------- | ----------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------ | ------------------------------------------------------------ |
+| **CRenderTaskQueue** | **Producer–Consumer + Thread Pool**       | — 接收 CGTaskTable 投递的 TCB（生产者） — 多线程并发发送 渲染请求给blender进程 并读取响应（消费者） | 渲染请求数量大，I/O 阻塞明显，需要异步并行处理         | • **高吞吐量**：固定数量 worker 线程持续消费任务，无需每次创建线程 • **资源控制**：线程数上限可根据 CPU/网络容量调整，避免过载 • **自动负载平衡**：队列天然先入先出，配合 LoadBalancer 按需调度 • **解耦调度与执行**：CGTaskTable 只负责任务登记；CRenderTaskQueue 负责真正 I/O 执行 |
+
+### 设计思路总结
+
+1. **职责分离**
+   - CGTaskTable = 管理任务元数据 & 生命周期
+   - CRenderTaskQueue = 实际执行请求／响应的异步队列
+2. **并发控制**
+   - shared_mutex 让 CGTaskTable 在高并发插入与删除任务时保持安全
+   - 条件变量 + mutex 保证 CRenderTaskQueue 高效唤醒与阻塞
+3. **可扩展性 & 可维护性**
+   - 增加新任务类型，只需创建新 TCB 或回调逻辑
+   - 调整执行并发度，仅改 ThreadNum 参数，无需重构
+4. **错误隔离**
+   - 单个任务失败通过 ExceptionCB 回调，不会影响队列中其他任务
+   - CGTaskTable 自动回收资源与 ID，避免泄漏
+
+---
+
+这层之上是一个gRPC异步服务器，它的作用就是接受主节点的渲染请求，调用Insert将任务注册进CGTaskTable，CGTaskTable 只负责任务登记；CRenderTaskQueue 负责真正 I/O 执行。
+
+---
+
+| 组件             | 设计模式                            | 目的／职责                       | 如何体现                                                     | 采用依据 & 好处                                              |
+| ---------------- | ----------------------------------- | -------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| **CShmManager**  | **Singleton**                       | 全局唯一的共享内存注册与获取入口 | `static Create()` 保证单例；所有注册(CreateShm/RegisteShm)与查询(GetShm)都通过同一个对象 | • **统一管理**：避免多处创建重复 shm，防止 key 冲突 • **生命周期集中**：便于全局清理与错误处理 • **线程安全初始化**：单例懒初始化保证多线程安全 |
+|                  | **Registry (Service Locator)**      | 动态注册已有/新建共享内存资源    | `RegisteShm`/`CreateShm` 存储 key→实例映射                   | • **解耦资源创建**：业务层只需 key，不必关心底层 shm API • **动态可配置**：可在运行时增删 shm 段 |
+| **CShmInstance** | **Factory Method**                  | 统一创建具体共享内存操作实例     | `static Create(id, addr, size)` 返回抽象指针                 | • **封装实现差异**：未来可替换多种底层 shm 实现（POSIX vs SysV） • **接口一致性**：Write/Read/Seek 等统一接口，屏蔽底层细节 |
+|                  | **Interface (Abstract Base Class)** | 隐藏具体循环队列算法             | 纯虚函数定义读写/寻址/清空等方法                             | • **松耦合**：调用方依赖抽象，不受具体实现变化影响 • **测试友好**：可 mock 实例进行单元测试 |
+|                  | **Cyclic Buffer (Behavioral)**      | 环形队列模型保证生产/消费并发    | Write/Read 自动维护 head/tail，循环覆盖                      | • **高性能零拷贝**：数据直接在共享内存中传递，无额外复制 • **阻塞最小化**：轻量同步（原子或自旋锁），适合高吞吐 IPC |
+
+### 总结思路
+
+1. **集中注册 vs 分散创建**
+   - Manager 提供统一入口，避免 key 重复、生命周期冲突。
+2. **接口抽象 vs 实现隐藏**
+   - Instance 只暴露基本读写操作，业务代码无需关心 mmap/mutex 等底层细节。
+3. **高效并发**
+   - 循环队列结构结合无锁/低锁同步，支持 Blender↔Node 的高频率消息交换，降低系统调用开销。
+4. **可扩展可替换**
+   - Factory+Interface 让你未来能切换到不同 shm 库或协议（如 POSIX、Boost.Interprocess），无需改动使用者代码。
+
+---
+
+
+
+| **CChannelMgr** | **Singleton**                         | 全局唯一的 IPC 通道管理器       | `static Create(configPath)` 返回单例                     | • 保证所有通信都由同一个管理器协调，避免重复初始化共享内存或冲突 • 简化配置加载与生命周期管理 |
+| --------------- | ------------------------------------- | ------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------ |
+|                 | **Factory (Factory Method)**          | 根据 IP 地址对获取/创建 Channel | `GetChannel(srcIp, dstIp)` 返回对应 CChannel*            | • 屏蔽 Channel 构造逻辑（shared‑memory vs broadcast） • 动态按需创建、自动缓存复用 |
+| **CChannel**    | **Abstract Interface**                | 统一同步/异步读写 API           | 纯虚方法 Bind/Write/Read/AsyncWrite/AsyncRead/Update     | • 解耦底层 IPC 实现与调用逻辑 • 兼容多种底层通道（共享内存、广播、多进程 socket） |
+|                 | **Decorator / Composite**             | 支持广播模式                    | `Create(set<CChannel*>)` 构造可向多个 Channel 写入的对象 | • 灵活支持一对多通信，无需业务层循环写入 • 保持对单个 Channel 接口兼容 |
+|                 | **Asynchronous Callback**             | 非阻塞 IO                       | AsyncWrite/AsyncRead 接受回调函数；Update 驱动事件       | • 支持事件驱动式通信，避免阻塞线程 • 提升并发度：同一线程可管理多条 IPC 流 |
+|                 | **Strategy (Timeout/Error Handling)** | 可配置读写超时与错误反馈        | Write/Read 返回错误码；Async 回调返回状态                | • 明确错误语义、可插拔重试策略 • 统一上层异常处理流程        |
+
+### 设计思路总结
+
+1. **统一入口 vs 多种通道**
+   - ChannelMgr 负责按 IP 对映射 Channel，避免业务层管理多个实例。
+2. **同步/异步并存**
+   - 提供 Sync API 便于简单场景，Async API+回调+Update 支撑高并发非阻塞场景。
+3. **广播通信支持**
+   - Composite 模式让单次发送可透明广播到多个进程，无需业务层循环。
+4. **解耦 & 可扩展**
+   - Interface + Factory 让不同 IPC 实现（共享内存 vs Unix socket）可替换，调用者无需感知细节。
 
 
 

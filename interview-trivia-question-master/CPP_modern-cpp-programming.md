@@ -171,7 +171,31 @@ student.base.id = 1;
 
 注意：RVO只在构造类的时候出现，对类进行赋值的时候不会被使用例如
 
+## mutable
 
+1. 允许在const成员函数中或者const对象中修改该成员变量
+
+```c++
+private:
+    mutable int count = 0;
+public:
+    void printA() const {
+        std::cout << count++ << std::endl;
+    }
+```
+
+2. 修改lambda捕获的变量。因为如果一般`[capture]()->void {}`的话，是不允许改变被捕获的值，只能通过`[&capture]`，但是这样更改后，外部被捕获的值也会改变。要是想要既不改变外部的值，又要在lambda函数体能修改这个被捕获值，就需要mutable
+
+```c+=
+auto b = [count]() mutable ->void  {
+        count++;
+        std::cout << count++ << std::endl;
+    };
+```
+
+
+
+**适用于类的成员变量，常用于缓存、延迟计算、日志记录等场景**。
 
 ## static关键字的作用和常见的场景
 

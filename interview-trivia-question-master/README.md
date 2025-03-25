@@ -108,6 +108,21 @@ if (t.bytes[0] == 0x12) std::cout << "大端" << std::endl;
 if (t.bytes[0] == 0x78) std::cout << "小端" << std::endl;
 ```
 
+---
+
+与网络字节序的联系
+
+**网络字节序 = 大端字节序**。所有在网络上传输的多字节整数（IP 地址、端口号、协议字段等）都必须以大端格式打包。
+
+主机在读写网络数据时，需在「主机字节序 ↔ 网络字节序」之间转换，以保证跨平台兼容性。
+
+```c++
+htons:host->network(short)
+htonl:host->network(long)
+ntohs:network->host(short)
+ntohl:network->host(long)
+```
+
 
 
 

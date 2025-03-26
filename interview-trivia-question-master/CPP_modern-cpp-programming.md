@@ -457,6 +457,38 @@ void Testdelcl()
 
 
 
+
+
+## 完美转发
+
+在c++11之前，泛型函数在传递参数的时候无法保持参数的原始类型（左值或右值），导致额外的拷贝和移动，完美转发能保持参数的原始特征，避免额外开销。
+
+**完美转发**就是在 **泛型函数**中，以参数的原始形式（左值或右值）传递给目标函数，从而避免不必要的拷贝或移动操作。
+
+```c++
+void process(int & x) {std::cout << "lvalue:" << x << std::endl;}
+void process(int&& x) {std::cout << "rvalue:" << x << std::endl;}
+
+
+template <typename T>
+void forwardExample(T&& arg) {
+    process(std::forward<T>(arg)); //std::forward保持数据类型
+}
+
+int main()
+{
+    int a = 1;
+    forwardExample(a);
+    forwardExample(1);
+}
+```
+
+forward会进行引用折叠和类型推到来决定参数是否应该保留右值的特性。
+
+
+
+ 
+
 ## volatile 关键字
 
 ```c++

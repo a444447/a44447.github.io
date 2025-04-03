@@ -1,3 +1,18 @@
+
+
+# MySQL 执行流程
+
+Linux要使用mysql的话，首先需要连接MySQL服务，然后才能执行SQL语句。连接的过程主要是依靠的TCP三次握手，mysql是基于TCP协议传输的。
+
+```mysql
+mysql -h$ip -u$user -p
+
+//显示有多少连接
+show processlist
+```
+
+
+
 # 关系型数据库与非关系型数据库的比较
 
 | 类型           | 定义                                                         | 优点                                                         | 缺点                                                         | 常见的软件                                              |

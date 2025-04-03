@@ -303,6 +303,8 @@ LFU是，Last Frequently Used,其核心思想是：**过去最常访问的那些
 
 ### 如何避免缓存雪崩，缓存击穿，缓存穿透
 
+![image-20250331145424592](assets/image-20250331145424592.png)
+
 **缓存雪崩：**
 
 ![img](https://cdn.xiaolincoding.com//mysql/other/e2b8d2eb5536aa71664772457792ec40.png)

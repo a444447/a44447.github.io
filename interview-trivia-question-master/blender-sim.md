@@ -259,6 +259,50 @@ Raft 要求每次选举的候选人必须拥有最新的已提交日志条目（
 
 我们选择跳表而非哈希表，主要因为跳表不仅能提供 O(log n) 的稳定查询性能，而且天然支持有序遍历和范围查询，这对于分布式 KV 的扫描、分页和数据迁移非常重要。哈希表虽在平均查找上是 O(1)，但碰撞处理和扩容都需要全表 rehash
 
+### **Leader 选举里检查日志一致性怎么做的？**
+
+在 **Leader 选举过程中，Follower 会检查 Candidate 的日志是否比自己的日志“更新”**，来决定是否投票。Raft 使用 **最后一条日志的 term 和 index** 来比较日志的新旧：
+
+- 首先比较 **lastLogTerm**，term 更大的日志更新；
+- 如果 term 相同，再比较 **lastLogIndex**，index 更大的日志更新。
+
+### 你说只投票给一个人，那有更新 term 的投票请求来会投票给他吗？
+
+是的，**如果投票请求中的 term 比当前 term 更大，那么会更新自己的 term 并投票给他**。
+
+Raft 要求每个 term 最多只能投一票，但如果收到的 `RequestVote` 中的 term > currentTerm，说明自己落后了：
+
+- 会把自己的状态重置成 Follower；
+- 更新自己的 term；
+- 清除当前的 votedFor；
+- 然后再根据 Candidate 的日志新旧决定是否投票。
+
+### 介绍一下快照机制
+
+Raft 的快照机制用于 **避免日志无限增长**。它把当前状态机的状态保存成一个快照，并丢弃老旧的日志。
+
+大致流程如下：
+
+1. **Leader 或 Follower 达到某个条件（比如日志太长）**，触发快照；
+2. 节点生成快照，保存当前状态机状态，同时记录最后包含在快照里的 log index 和 term；
+3. 删除快照之前的日志（Compact）；
+4. 如果 Follower 的日志落后太多，Leader 会通过 `InstallSnapshot` RPC 把快照发给 Follower；
+5. Follower 收到快照后，替换自己的状态机和 log state。
+
+### 什么时候会发送快照
+
+发送快照是这样设计的：当`Leader`发现`Follower`要求回退的日志已经被`SnapShot`截断时, 需要发生`InstallSnapshot RPC`
+
+1. SendHeartBeats`发现`PrevLogIndex < lastIncludedIndex`, 表示其要求的日志项已经被截断, 需要改发送心跳为发送`InstallSnapshot RPC
+2. 
+
+**Leader 会在以下情况下发送快照：**
+
+- **Follower 落后太多，Leader 没有它需要的日志了**（即 `nextIndex[follower]` 小于自己的 `lastIncludedIndex`）；
+- 这时 Leader 不能再用 `AppendEntries` 来同步日志，只能发送快照；
+- 会调用 `InstallSnapshot` RPC，把快照发送给该 Follower；
+- Follower 接收到快照后，重置状态并更新快照元信息。
+
 # blender-sim
 
 
@@ -410,6 +454,19 @@ Master对每个工作节点服务器维护2个权重变量：
 
 
 ### 资源指标（CPU、内存、GPU）是如何采集与计算的？动态速率调整公式是什么？
+
+根据本机的负载情况判断是否扩容blender实例，这个负载不是根据瞬时负载判断的，而是我们会维护一个滑动窗口（队列实现），设定这个滑动窗口的大小为N，计算这个滑动窗口整体的cpu、mem、gpu使用的平均值。
+
+只要cpu、mem、gpu某一个超过了80%阈值，就不再提供扩容。
+
+（1） 处理器使用率 
+这里要从/proc/stat中提取四个数据：用户模式（user）、低优先级的用户模式（nice）、内核模式（system）以及空闲的处理器时间（idle）。它们均位于/proc/stat文件的第一行。CPU的利用率使用如下公式来计算。 
+CPU利用率 = 100 *（user + nice + system）/（user + nice + system + idle） 
+（2） 内存使用率 
+这里需要从/proc/meminfo文件中提取两个数据，当前内存的使用量(cmem)以及内存总量(amem)。 
+内存使用百分比 = 100 * (cmem / umem) 
+
+
 
 ### 弹性扩容的最大／最小实例数如何设定？何时销毁空闲进程？
 

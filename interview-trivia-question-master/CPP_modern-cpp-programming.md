@@ -165,6 +165,26 @@ student.base.id = 1;
 
 多态依然用函数指针来实现
 
+## extern和inline
+
+### extern
+
+c++程序执行到汇编的时候，会生成.o文件，然后链接阶段会被这些.o文件都组合成二进制可执行文件或者静态库动态库。
+
+假如两个.o文件包含了相同的符号，链接的时候就会出现符号重定义
+
+一种解决方法是，在任意的一个源代码中，声明`extern void func()`，表示承诺链接的时候只需要在其他文件去找就行。
+
+### inline
+
+第二个解决方法就是，使用inline修饰——它表示允许一个函数、变量在多个文件中重复定义。
+
+inline修饰过的这些重复定义的符号，它们会生成软连接，在链接器链接的时候会找到这些同名的软链接，然后生成一份独一无二的函数定义。**但是使用这种方式的话就要求这多个定义都要相同，否则可能会报错或者随机选择这个作为唯一的定义。**
+
+
+
+
+
 ## extern C
 
 extern C 就是告诉编译器按照C语言的方式编译和链接函数或变量，以解决C++名称修饰带来的兼容性问题。
@@ -466,6 +486,42 @@ int *p = const_cast<int*>(&a); //错误，a本身是const属性
 ### reinterpret_cast
 
 只要保证地址数据，地址内存大小能对上，就能进行转换，比如指针和整数之间的转换。
+
+## function
+
+在 C++ 中，`std::function` 是一个**通用的函数封装器**，可以存储、复制和调用任何可调用对象(函数、lambda、函数对象、成员函数等).
+
+```c++
+//基本语法
+std::function<返回类型(参数类型...)> 函数变量;
+
+ std::function<int(int, int)> add = [](int a, int b) {
+        return a + b;
+ };
+```
+
+function经常和bind一起封装回调函数。
+
+**bind**：生成一个**可调用对象（callable）**，你可以把它赋值给 `std::function`
+
+```c++
+void greet(const std::string& name, int age) {
+    std::cout << "Hello, " << name << "! You are " << age << " years old." << std::endl;
+}
+
+// 绑定前两个参数，顺序为 name, age
+auto boundFunc = std::bind(greet, "Alice", 25);
+std::function<void()> func = boundFunc;
+
+auto add10 = std::bind(add, 10, std::placeholders::_1);//占位符
+MyClass obj;
+// 绑定成员函数：obj + 参数 a = 3，b = 占位
+auto boundFunc = std::bind(&MyClass::printSum, &obj, 3, std::placeholders::_1);
+```
+
+
+
+
 
 ## 右值引用
 

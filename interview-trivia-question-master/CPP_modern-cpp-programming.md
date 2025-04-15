@@ -126,6 +126,58 @@ recv(socket_fd, buffer, sizeof(buffer), 0);
 
   因为不加锁的话当线程并发时会产生多个实例，导致线程不安全
 
+如果是 **传统的双重检查锁**，需要使用双重判空，确保单例对象只能被初始化一次。
+
+1. 第一次检查 `if (instance == nullptr)` 是为了避免每次都加锁，提高效率。
+2. 如果发现 `instance` 为空，进入临界区加锁，并再次检查 `instance` 是否为空（第二次检查）。这是因为在第一次检查之后，可能有另一个线程也在尝试创建实例。
+
+```c++
+class Singleton {
+private:
+    static Singleton* instance;
+    static std::mutex mtx;
+
+    Singleton() {} // 私有构造函数
+    ~Singleton() {}
+
+public:
+    static Singleton* getInstance() {
+        if (instance == nullptr) { // 第一次检查
+            std::lock_guard<std::mutex> lock(mtx);
+            if (instance == nullptr) { // 第二次检查
+                instance = new Singleton();
+            }
+        }
+        return instance;
+    }
+};
+
+// 静态成员变量初始化
+Singleton* Singleton::instance = nullptr;
+std::mutex Singleton::mtx;
+```
+
+c++11后，引入了线程安全的局部静态变量初始化，局部静态变量在初始化时由编译器保证是线程安全的。这意味着在多线程环境下，局部静态变量只会被初始化一次，不需要手动加锁。
+
+```c++
+class Singleton {
+public:
+    static Singleton& getInstance() {
+        static Singleton instance;
+        return instance;
+    }
+
+private:
+    Singleton() {} // 私有构造函数
+    ~Singleton() {}
+
+    Singleton(const Singleton&) = delete; // 禁止拷贝构造
+    Singleton& operator=(const Singleton&) = delete; // 禁止赋值运算
+};
+```
+
+
+
 #### 饿汉式
 
 ### Command模式
@@ -217,6 +269,23 @@ student.base.id = 1;
 ### 多态
 
 多态依然用函数指针来实现
+
+
+
+## explicit
+
+explicit关键词，能防止隐式转换的发生
+
+```c++
+class A {
+    explicit A();
+}
+```
+
++ 像是几乎所有STL容器的构造函数都加了`explicit`，因为vector, map这样的数据结构都有单参数构造，如果不加explicit，就容易在赋值、初始化的时候发送隐式类型转换，引发逻辑错误。
++ 如果给默认构造函数加了explicit的话，就没有用`T obj = {}`这样隐式初始化，就必须用`T obj{}或者T obj()`
+
+
 
 ## extern和inline
 
@@ -361,7 +430,11 @@ int* const pv1 = &addr, addr里面的内容可以修改，但是pv1无法修改�
 + `#define` 没有类型，纯粹是字符串替换，因此不会进行类型检查。`const` 有类型，编译器会进行类型检查，能避免许多错误。
 + `#define` 没有作用域概念，一经定义在整个文件中都生效。`const` 遵循 C++ 的作用域规则，可以在类中、命名空间中、函数中使用。
 
+## constexpr
 
+constexpr修饰的式编译器常量，值是在编译期计算并确定的，适用于常量表达式。
+
+> 像const的含义主要是表示变量是只读的，其值不一定在编译时已知，可以进行运行时计算。
 
 ## 大端小端
 

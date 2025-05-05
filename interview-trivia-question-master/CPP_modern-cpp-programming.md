@@ -178,13 +178,157 @@ private:
 
 #### 饿汉式
 
+### 观察者模式
+
+观察者模式主要是用于这样的场景：常用于实现一对多依赖关系，让多个对象观察一个对象，当被观察者发生变化时会自动通知所有观察者。
+
+> 你订阅了某个微信公众号（被观察者）。当公众号发新消息时，它会推送给你（观察者），你就能“被动接收”更新。
+
+在观察者模式（Observer Pattern）中，主要有以下**四个核心角色**，每个角色职责清晰，协作实现“发布-订阅”机制：
+
+1. subject
+  提供注册（attach）、注销（detach）观察者的方法；
+  提供通知方法（notify），在自身状态变化时通知所有观察者。
+
+2. concreteSubject(具体主题)
+  实现subject接口，维护自己的内部状态；
+  状态发生变化时调用 notify()；
+  通常提供 getState() 方法供观察者读取状态。
+3. observer
+  声明一个 update() 接口方法，被 Subject 调用；
+  可以设计成“拉模式”或“推模式”（是否传数据给 update）。
+4. concreteObserver(具体观察者)
+  保存对主题的引用（可选）；
+  在 update() 中拉取数据或根据推送数据做出动作；
+  更新自己的状态或执行逻辑（如 UI 刷新、日志记录等）。
+
+### 工厂模式
+
+它的核心思想是：**将对象的创建过程封装起来，使调用者无需关心具体类如何实例化，只需“向工厂要一个产品”即可**。
+
+工厂类常见的三种模式
+
+| 模式名                           | 简述                                   |
+| -------------------------------- | -------------------------------------- |
+| **简单工厂（Simple Factory）**   | 一个工厂类，创建所有产品               |
+| **工厂方法（Factory Method）**   | 每种产品一个工厂子类，工厂类做“抽象化” |
+| **抽象工厂（Abstract Factory）** | 创建“产品族”（多个相关产品）           |
+
+#### 简单工厂模式
+
+简单工厂模式通常包括一个工厂类和多个产品类。工厂类负责根据客户端的请求，返回对应的产品类实例。就是用户申请一个产品，由工厂负责创建对象。而不是用户自己创建对象。在简单工厂模式中，客户端只需要通过调用工厂类的方法，并传入相应的参数，而无需直接实例化产品类。工厂类**根据客户端传入的参数**决定创建哪个产品类的实例，并将实例返回给客户端。
+
+简单工厂模式可能的问题就是，当需要创建多种类型的产品实例时，工厂类的代码可能会变得复杂，并且随着产品类型的增加，工厂类的责任也会越来越大。
+
+```c++
+class Product {
+public:
+    virtual void operation() = 0;
+};
+class ConcreteProductA : public Product {
+public:
+    void operation() override {
+        // 具体产品A的操作实现
+    }
+};
+class ConcreteProductB : public Product {
+public:
+    void operation() override {
+        // 具体产品B的操作实现
+    }
+};
+class SimpleFactory {
+public:
+    static Product* createProduct(const std::string& type) {
+        if (type == "A") {
+            return new ConcreteProductA();
+        } else if (type == "B") {
+            return new ConcreteProductB();
+        } else {
+            return nullptr; // 可以添加默认处理逻辑或抛出异常
+        }
+    }
+};
+```
+
+#### 工厂方法模式
+
+将工厂也抽象化，每个产品由其对应的具体工厂创建。这样的话，新增产品无需修改原工厂类，只需新增一个工厂子类。
+
+
+
 ### Command模式
 
 也就是把请求封装为对象，比如我的blender项目中，工作节点会把主节点发来的任务都构造为一个TCB对象。
 
 ### State 模式
 
-对象状态驱动行为，一般都是有一个全局的context,然后有一个state interface。比如项目某个项目中，攻击算法需要大量的步骤，有些步骤又有不同的实现，例如：图像源可以采用（相机，磁盘，网络），启发式算法可以使用（GA，PSO）算法为了组合各个步骤的实现，提高每个步骤算法的可重用性，我采用State模式，将每个算法步骤抽象为一个State，通过外部配置文件配置状态机之间的转移流程。
+**状态模式**允许一个对象在其内部状态发生改变时，**行为也随之改变**，就好像这个对象换了一个类一样。所以，当一个对象的行为依赖于它的状态，并且它必须在运行时根据状态改变其行为时，使用状态模式是最合适的。
+
+一般来说有下面三个角色
+
+1. **Context（上下文/环境类）**
+
+> 持有当前状态对象，并将请求委托给当前状态对象处理。
+
+📌 职责：
+
+- 维护一个 `State` 类型的实例；
+- 提供设置状态的接口（`setState()`）；
+- 对外暴露操作接口（`request()`），但不自己处理，而是转发给当前状态对象。
+
+✅ 示例：
+
+```
+class Elevator {
+    State* state;
+public:
+    void setState(State* s) { state = s; }
+    void request() { state->handle(); }
+};
+```
+
+✅ 2. **State（抽象状态类）**
+
+> 定义所有状态类共有的接口，通常是一个或多个行为方法，如 `handle()`。
+
+📌 职责：
+
+- 声明接口，例如 `handle(Context*)`；
+- 可根据需要将 `Context` 传入状态对象，支持状态内部切换。
+
+✅ 示例：
+
+```
+class State {
+public:
+    virtual void handle(Context* ctx) = 0;
+    virtual ~State() {}
+};
+```
+
+✅ 3. **ConcreteState（具体状态类）**
+
+> 实现 `State` 接口，定义在该状态下 `Context` 应该如何行为，并**决定是否切换状态**。
+
+📌 职责：
+
+- 实现 `handle()`，定义该状态下的操作；
+- 可以调用 `ctx->setState()` 实现状态切换。
+
+✅ 示例：
+
+```
+class OpenState : public State {
+public:
+    void handle(Context* ctx) override {
+        std::cout << "开门状态，禁止运行\n";
+        ctx->setState(new ClosedState());  // 状态转换
+    }
+};
+```
+
+
 
 ## 类的大小
 
@@ -193,6 +337,57 @@ class的大小主要由这几点:
 1. 非静态成员变量的大小（静态成员存储在全局区）
 2. 内存对齐（详见内存对齐规则）
 3. 虚指针（有虚函数的话，或者虚继承）
+
+
+
+## atomic
+
+c11引入。`std::atomic` 支持原子地读写变量，还支持原子加减、交换、比较并交换（CAS）、加载/存储等操作，适合构建无锁算法或优化临界区。
+
+```c++
+std::atomic<int> x = 0;
+x.store(1);
+int val = x.load();
+x.fetch_add(1);
+x.compare_exchange_strong(expected, desired); //CAS操作
+
+std::atomic<int> a = 10;
+int expected = 10;
+int desired = 20;
+if (a.compare_exchange_strong(expected, desired)) {
+    // 成功将 a 从 10 改为 20
+}
+//compare_exchange_weak 允许因为硬件的原因而 偶发性失败，即使 expected == current，也可能返回 false。它适合在循环重试场景使用，因为性能更高
+```
+
+| 函数                      | 特点                               | 适用场景                           |
+| ------------------------- | ---------------------------------- | ---------------------------------- |
+| `compare_exchange_strong` | 失败仅因 `expected != current`     | 推荐用于单次尝试                   |
+| `compare_exchange_weak`   | 可能会偶发失败（spurious failure） | 推荐用于循环重试（`while (!cas)`） |
+
+### 内存序
+
+`std::atomic` 支持不同的内存序语义，如 `memory_order_relaxed`、`acquire/release`、`seq_cst`。默认是最强的 `seq_cst`，提供全序一致性，但有时我们会选用更弱的内存序来优化性能。
+
+内存序控制的是原子操作与其他普通操作的执行顺序。默认的 `seq_cst` 最强，适用于大多数并发场景。如果性能瓶颈严重，可以考虑 `acquire/release` 建立 happens-before 关系。只有在非常确定的非同步场景才会考虑 `relaxed`
+
+| 内存序                 | 含义                                   | 用途                         |
+| ---------------------- | -------------------------------------- | ---------------------------- |
+| `memory_order_relaxed` | 最弱，**不保证同步和顺序性**，仅原子性 | 高性能计数器、非同步统计数据 |
+| `memory_order_acquire` | 读屏障，**后续读取不能被提前**         | 保证读依赖不会乱序           |
+| `memory_order_release` | 写屏障，**之前的写不能被延后**         | 保证写操作先于其他线程看到   |
+| `memory_order_acq_rel` | 同时具备 acquire + release             | 读写合并操作（如 CAS）       |
+| `memory_order_seq_cst` | 默认值，全序一致性，**最安全但最慢**   | 简单并发场景，推荐默认使用   |
+
+### CAS的汇编指令
+
+`CMPXCHG` .CAS 是通过 `CMPXCHG` 指令实现的，这条指令结合 `LOCK` 前缀实现原子性。它会比较目标地址的值与 EAX 寄存器中的值，如果相等则写入新值，否则将目标地址的值加载到 EAX。
+
+```
+mov eax, expected       ; 把期望值放入 EAX
+mov ebx, desired        ; 把目标值放入 EBX
+lock cmpxchg [x], ebx   ; 如果 [x] == EAX，就把 EBX 写入 [x]，否则把 [x] 加载进 EAX
+```
 
 
 
@@ -993,11 +1188,38 @@ g++ -shared -o libmath.so math.o//生成动态库
 
 ## 虚函数
 
+虚函数是 C++ 实现运行时多态的关键机制。当基类中的成员函数被声明为 `virtual`，并被子类重写时，通过基类指针或引用调用函数时，会在运行时动态绑定调用的函数版本。
+
+C++ 使用 **虚函数表（vtable）** 来实现动态多态。每个包含虚函数的类在编译时会生成一张 vtable，表中保存该类所有虚函数的地址。每个对象实例中会有一个指向 vtable 的指针（通常叫 vptr），在调用虚函数时，程序通过 vptr 找到对应函数并调用。
+
+当通过基类指针调用一个虚函数时，程序会先通过对象的 vptr 找到它的 vtable，再在 vtable 中查找对应函数的地址，最后通过该地址跳转到函数体执行。这一过程发生在运行时，从而实现了基于实际对象类型的动态分发
+
 ### 纯虚函数
+
+**纯虚函数**是没有实现的虚函数，在基类中用 `= 0` 来表示，是实现 **抽象接口** 的关键。
+
++ 强制派生类必须重写该函数；
+
++ **含有纯虚函数的类称为抽象类，不能实例化**；
+
++ 用来定义接口/规范，类似 Java 中的 interface。
 
 ### 虚继承
 
+虚继承是 C++ 为了解决**多重继承中“菱形继承”导致的重复继承问题**而引入的一种继承方式。
 
+```c++
+class A { public: int x; };
+class B : virtual public A {};
+class C : virtual public A {};
+class D : public B, public C {};  // 如果不虚继承，D 会有两份 A::x！
+```
+
+虚继承让 **最上层的基类（A）只保留一份子对象**；
+
+编译器会让 `D` 只继承一份 `A`，并通过指针修正来避免歧义；
+
+虚继承内部通过 **虚基表（vtable）和指针偏移**来访问唯一的 A。
 
 ### 构造/析构函数能否是虚函数
 
@@ -4117,6 +4339,28 @@ C++提供了三种类型的智能指针：`std::unique_ptr`，`std::shared_ptr`�
 1. **`std::unique_ptr`**：这是最轻量级的智能指针，它不需要额外的内存来管理资源，因此其内存大小通常与裸指针相同。`std::unique_ptr`拥有其指向的对象，当`std::unique_ptr`被销毁时（例如离开其作用域），它所拥有的对象也会被自动销毁。`std::unique_ptr`不能被复制，只能被移动，这保证了同一时间只有一个`std::unique_ptr`可以指向一个对象，防止了资源的多重释放。在效率上，`std::unique_ptr`几乎与裸指针一样，因为它不需要额外的引用计数或同步操作。
 
 2. **`std::shared_ptr`**：这是一个引用计数的智能指针，它需要额外的内存来存储引用计数。每当一个新的`std::shared_ptr`指向一个对象，引用计数就会增加，当`std::shared_ptr`被销毁时，引用计数就会减少，当引用计数变为0时，对象就会被自动销毁。`std::shared_ptr`可以被复制和赋值，可以有多个`std::shared_ptr`指向同一个对象。在效率上，`std::shared_ptr`比`std::unique_ptr`低一些，因为它需要维护引用计数，而且这个操作需要是线程安全的。
+
+`shared_ptr` 的引用计数信息并不存储在 `shared_ptr` 本身，而是存储在一个**独立的控制块（control block）**中。每个 `shared_ptr` 拷贝会共享这个控制块，控制块中包含两个计数器：一个是强引用计数（shared count），一个是弱引用计数（weak count）。控制块和被管理对象可能在同一块内存中（`make_shared` 场景），也可能是分开分配的（直接用 `new` + `shared_ptr`）。
+
+这样可以看出来`make_shared` 优化了控制块和对象之间的内存布局，通过一个分配操作同时创建对象和控制块，可以减少堆分配次数，提高缓存局部性。
+
+```c++
+struct ControlBlock {
+    std::atomic<long> shared_count;  // 被 shared_ptr 持有的次数
+    std::atomic<long> weak_count;    // 被 weak_ptr 持有的次数（+1 来防止提前释放 control block 本身）
+    void* ptr_to_object;
+    deleter function;                // 自定义析构器（可选）
+    allocator function;              // 自定义分配器（可选）
+};
+```
+
+> **为什么controlBlock必须要在堆上？**
+>
+> `std::shared_ptr` 支持多个智能指针实例共享同一个底层对象的所有权。为了使得所有这些智能指针实例都能看到并更新同一个引用计数，这个计数必须存在于一个所有实例都可访问的单一、共享的位置。如果引用计数是一个栈上的成员变量，每个 `shared_ptr` 的副本将会拥有自己的计数副本，这样就无法达到多个智能指针之间的正确同步和共享。
+>
+> 智能指针的核心功能是自动管理其指向的对象的生命周期。使用堆分配的引用计数允许智能指针独立于任何函数或作用域，随时正确地管理对象的生命周期。如果使用栈分配的引用计数，那么计数的有效性将受限于它所在作用域的生命周期，这将导致无法跨作用域或线程安全地共享和管理智能指针。
+>
+> `std::shared_ptr` 还与 `std::weak_ptr` 配合使用，后者允许对对象的非拥有引用（即不增加引用计数）。为了使 `weak_ptr` 能够检查所关联的 `shared_ptr` 是否仍存在，引用计数（通常包括强引用计数和弱引用计数）需要独立于任何单个 `shared_ptr` 或 `weak_ptr` 实例。这样，即使所有 `shared_ptr` 实例都已销毁，引用计数结构（和可能还未被销毁的底层对象）依然可由 `weak_ptr` 访问。
 
 3. **`std::weak_ptr`**：这是一种特殊的智能指针，它指向一个由`std::shared_ptr`管理的对象，但是它不会增加引用计数。`std::weak_ptr`主要用于防止智能指针的循环引用问题。它的内存大小和效率与`std::shared_ptr`相似，因为它也需要存储引用计数，但不会改变引用计数。
 

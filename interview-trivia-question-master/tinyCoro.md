@@ -794,97 +794,248 @@ auto scheduler::stop_impl() noexcept -> void {
 
 ## 面试说法
 
-### 电梯词（10 秒开场）
+### 为什么 说协程单独使用是没有什么用的
 
-> tinyCoro 是一个基于 C++20 协程 + io_uring 的异步 I/O 框架。协程用 `task` 做可调度单元，右值提交时 `detach` 把帧释放权交给引擎；每个 `context` 拥有一个 `engine` 和工作线程，`engine` 维护任务队列与 io_uring，事件通知用 eventfd；`scheduler` 负责多 context 的负载分发与统一停机。写法保持同步风格，但实际是异步、事件驱动。
+**协程只是语法糖，本身并不产生“并发”或“性能提升”**。
 
-### 1) 架构 & 线程模型
+> ## 1. 协程单独使用时的本质
+>
+> - C++20 协程是一种**编译器改写机制**：编译器会把 `co_await / co_yield / co_return` 改写成一个**状态机 + 协程帧对象**。
+> - 如果你只有协程，没有配套的调度器/IO接口，那协程就是**在单线程里切来切去**，它并不能：
+>   - 把计算自动分给多个 CPU；
+>   - 把 IO 自动变快。
+> - 相反，它甚至比一个普通函数更重：要维护协程帧、promise_type、handle，对象生命周期，带来额外开销。
+>
+> 所以实验者如果只是写：
+>
+> ```
+> Task foo() {
+>     std::cout << "A\n";
+>     co_await std::suspend_always{};
+>     std::cout << "B\n";
+> }
+> ```
+>
+> 和你写一个 `switch` 状态机，或者写两个函数手动调用，**没有本质性能区别**。单纯“切片”不会让程序更快。
+>
+> ------
+>
+> ## 2. 为什么说“协程单独使用没用”
+>
+> - 它不会让你的程序**自动并行**（不是像线程池那样并发执行）。
+> - 它不会让 IO **自动变快**（底层如果是阻塞 IO，协程切不走）。
+> - 它反而会因为：
+>   - 创建/销毁协程帧；
+>   - handle 的管理；
+>   - 状态机的额外跳转；
+>      带来**开销**，在只做计算任务时甚至比普通函数还慢。
+>
+> 换句话说，如果你只是把 for 循环改成 `co_yield`，你得到的只是写法不同，性能未必更好。
+>
+> ------
+>
+> ## 3. 协程真正发挥作用要配合什么
+>
+> 协程的价值在于**把“等待”变成“挂起”，从而节省资源**。这要和 **IO 或调度框架**结合使用：
+>
+> - **异步 IO**（epoll/kqueue/IOCP、Linux io_uring）：
+>    当你 `co_await socket.read()`，协程挂起 → CPU 去干别的事 → 数据到来时再恢复。
+>    → 避免了线程阻塞、减少线程切换成本。
+> - **调度器/事件循环**（libuv, ASIO, folly）：
+>    协程让你写“看起来同步”的代码，但底层却是事件驱动。
+>    → 可维护性 + 性能。
+> - **配合多线程/线程池**：
+>    协程可以当作用户态轻量任务，用调度器分发到线程池。
+>    → 比操作系统线程切换更轻，提升并发度。
+>
+> ------
+>
+> ## 4. 小结
+>
+> 所以那句话的意思是：
+>
+> > **协程单独使用时，你只是在用语法糖生成状态机，既没有并发，也没有更快的 IO，反而有开销。**
+> >  **协程必须和调度器/IO系统结合，才能把“挂起等待”转化为“高效异步”，这才是它的价值。**
 
-**Q：整体架构怎么组织的？**
 
-- **A**：`scheduler` 持有 N 个 `context`（默认 CPU 逻辑核数），每个 `context` 一个 `jthread` + 私有 `engine`。`engine` 管任务队列（MPMC）和 io_uring（绑定 eventfd）。任务可跨线程提交；io_uring 的 `submit/wait/peek` 只在**所属线程**调用，避免跨线程驱动 uring 的竞态。
 
-**Q：为什么用 `jthread` 而不是 `std::thread`？**
+```mermaid
+flowchart TD
 
-- **A**：`jthread` 自带自动 `join` 和 `stop_token` 取消语义，简化了退出与资源收敛。`context::notify_stop()` 用 `request_stop()` + `engine.wake_up(1)` 组合，能立刻唤醒 `poll_submit()` 的阻塞。
+A1[普通函数] --> A2[调用函数]
+A2 --> A3[执行到阻塞IO/耗时任务]
+A3 --> A4[线程阻塞等待]
+A4 --> A5[任务完成, 返回结果]
 
-### 2) task / 协程语义
+B1[单纯协程] --> B2[调用协程]
+B2 --> B3[执行到 co_await std::suspend_always]
+B3 --> B4[编译器生成状态机 + 协程帧]
+B4 --> B5[依然单线程执行, 没有并发]
+B5 --> B6[性能甚至更差, 因为多了状态机开销]
 
-**Q：`task` 的价值是什么？**
+C1[协程 + IO/调度器] --> C2[调用协程]
+C2 --> C3[执行到 co_awaitstd::suspend_always]
+C3 --> C4[协程挂起, 保存状态]
+C4 --> C5[事件循环/调度器去等待IO]
+C5 --> C6[CPU去运行其他任务]
+C6 --> C7[IO完成, 调度器恢复协程]
+C7 --> C8[协程从挂起点继续执行]
 
-- **A**：`task<T>` 是**可调度单元 + 资源所有者**。创建即挂起（`initial_suspend = suspend_always`），调度权交给引擎；`final_suspend` 用自定义 `FinalAwaiter` 恢复父协程，保证“子跑完回到调用点”；右值提交时 `detach()` 把销毁权转交给引擎，`engine.clean()` 只销毁 **detached** 的协程帧。
+```
 
-**Q：`detach/clean` 的正确性怎么保证？**
+### 线程池对比协程
 
-- **A**：`detach()` 在 promise 里打 `m_detached=true` 并清空 `task` 的句柄；引擎 `exec_one_task()` 里 `done()` 后调用全局 `clean(h)`，只有 `detached` 才 `destroy()`，避免双删。左值提交不 `detach`，必须保证 task 生命周期覆盖执行。
+| 维度       | 线程池 + 阻塞I/O                   | 协程 + 异步I/O（epoll/kqueue/IOCP/io_uring）              |
+| ---------- | ---------------------------------- | --------------------------------------------------------- |
+| 并发模型   | OS 线程并发；每个阻塞占用一个线程  | 单/少量线程上跑**大量用户态任务**；等待时**挂起不占线程** |
+| 上下文切换 | 线程切换（内核态），成本高         | 协程切换（用户态），成本低                                |
+| I/O 等待   | 线程被阻塞，核心空转               | 事件驱动，等待时让出 CPU                                  |
+| 内存占用   | 每线程栈内存较大（MB 级）          | 协程帧按需分配（KB 级），数量易扩展                       |
+| 可维护性   | 回调少，代码直观，但需小心线程安全 | `co_await` 写“同步风格”的异步，逻辑更线性                 |
+| 极限并发   | 受线程数、栈内存、调度开销限制     | 受事件循环与任务队列能力限制，易达更高并发                |
+| 计算密集   | 线程池合适（CPU 绑定任务）         | 需要配合调度器把计算任务分发到工作线程                    |
+| 排错难度   | 死锁/竞争条件经典坑                | 生命周期/悬空 handle、双重销毁、未 resume                 |
 
-**Q：父子协程如何对称移交？**
+> # 什么时候用哪个？
+>
+> - **用线程池（阻塞 I/O）**
+>   - 连接数中小规模（10^2 ~ 10^4）、逻辑简单、团队已有成熟线程池框架。
+>   - 以**CPU 计算**为主（图像处理、加解密、压缩），I/O 等待短。
+> - **用协程 + 异步 I/O**
+>   - 高并发连接/长连接（IM、网关、推送、RPC 服务端、代理）。
+>   - I/O 等待占比高（网络/磁盘/数据库），需要**释放线程去处理其他任务**。
+>   - 追求**低内存占用**与**用户态轻量调度**、避免线程风暴。
+> - **混合**（强烈推荐的工程方案）
+>   - **I/O 用协程（事件驱动）**，**CPU-heavy 子任务丢给线程池**处理：
+>      `co_await async_read()` → `co_await thread_pool.awaitable(post(work)))` → `co_await async_write()`。
 
-- **A**：父 `co_await child` 时，`task` awaiter 的 `await_suspend` 记录父句柄并**返回子句柄**（对称移交，子立刻运行）。子到 `final_suspend` 时 `FinalAwaiter::await_suspend` 恢复父；随后引擎看到 `done()` 再按 `detached` 清理子帧。
+### tinyCoro具体设计
 
-### 3) I/O 模型（io_uring + eventfd）
+tinyCoro 的核心部分多线程执行引擎由`engine`、`context`和`scheduler`三部分组成。
 
-**Q：一次异步 I/O 从发起到恢复的完整流程？**
+每个`engine`持有一个 io_uring 实例和无锁工作队列，工作队列用于存储协程任务，io_uring 实例用来处理 IO 任务。
 
-- **A**：在 awaiter 构造时：`get_free_urs()` 取 SQE → `io_uring_prep_XXX` 填充 → `io_uring_sqe_set_data(io_info)` 绑定回调与句柄 → `add_io_submit()`（`pending++`）。
-   `context::run()` 进入 `engine.poll_submit()`：把 `pending` 一次性 `submit()` 到内核，`running += pending；pending=0`；`wait_eventfd()` 阻塞直到事件；批量 `peek_batch_cqe()` → `handle_cqe_entry(cqe)` 取 `io_info` → 回调里 `submit_to_context(io_info->handle)` 把协程句柄投回任务队列；引擎随后 `exec_one_task()` 恢复协程，`await_resume()` 返回 I/O 结果。
+每个`context`持有一个`engine`和一个工作线程，其中工作线程利用事件循环的方式驱动 engine 执行完所有的任务。
 
-**Q：为什么在 `submit_task` 会写 eventfd 唤醒？I/O 还没完成啊。**
+`scheduler`在全局只存在一个实例，自身持有多个 context 并负责将新产生的任务根据负载均衡逻辑派发到指定`context`。
 
-- **A**：`poll_submit()` 内部会 `wait_eventfd()` 作为**统一睡眠点**。新任务到来时必须把工作线程唤醒，否则得等到某个 I/O 完成才会醒，计算任务会延迟。写 eventfd 的意义是“有事就醒”，不等 I/O。
+综合来看三者之间的关系就像一个军队，`engine`为武器，`context`为士兵，每个士兵持有一把武器且只有持有了武器的士兵才可以作战，`scheduler`作为司令官负责为士兵派发任务。
 
-### 4) 事件循环 & 停机协议
+对于 IO 执行部分，每当协程发起一个协程任务时会采用`co_await io_awaiter`的调用，`io_awaiter`会从 io_uring 获取 sqe 并根据 IO 类型填充 sqe 然后提交，注意为 sqe 填充的信息包含一个回调函数，随后该协程陷入 suspend 状态并转移执行权，这样工作线程可以继续处理下一个任务，等到 IO 执行完成后工作线程取出 cqe 并调用回调函数，回调函数会向任务队列提交协程句柄从而恢复协程执行。在用户看来这就是个同步调用，但实际上执行引擎会采用异步的方式执行。
 
-**Q：`context::run()` 的循环策略？**
 
-- **A**：每轮先批量执行“当前队列中的任务”（`num_task_schedule()` 次 `exec_one_task()`），然后不论是否有 I/O 都进入 `poll_submit()`，把它作为**唯一睡眠点**：I/O 完成 / 新任务提交 / 停止信号都会通过 eventfd 唤醒，简化空闲等待的分支复杂度。
 
-**Q：如何判断可以安全退出？会不会有协程没恢复就退出？**
+### tinyCoro亮度和难点
 
-- **A**：退出条件在 `context` 层组合判断：`stop_requested && engine.ready()==false && engine.empty_io()==true && m_wait_cnt==0`。
-   其中 `m_wait_cnt` 是**挂起引用计数**，例如遇到互斥/条件等待等需要 `register_wait()` / `unregister_wait()`，防止“仍有挂起协程时过早退出”造成泄漏。
+主要有如下几点：
 
-**Q：多 context 的统一停机由谁负责？**
+- **线程独立的执行引擎：** 多线程执行引擎中各个 context 持有一个工作线程且彼此相互独立，通过`scheduler`来保证任务的均衡分配，这样既能利用多线程又可以最大限度降低线程竞争带来的性能损耗。
+- **基于 eventfd 的轻量级事件循环：** tinCoro 执行引擎本身的事件循环是采用轻量的 eventfd 完成的，在没有任何任务时线程会阻塞在 eventfd 读操作上，当 io_uring 产生 IO 完成事件以及任务队列收到新任务时会自动向 eventfd 写值，这保证了线程被及时唤醒继续处理任务，eventfd 的读写是十分轻量的，一次读写耗时不超过 1us，因此基于 eventfd 的轻量级事件循环十分高效。
+- **scheduler 对 context 的智能化管理：** 只要用户向`scheduler`提交了任务，那么只需要调用`scheduler::loop`便可以自动等待所有任务完成，对于特定的`context`即使执行完所有的任务也不会立刻终止，因为只要别的`context`还在运行就表明`scheduler`可能会向该`context`派发新任务，只有等待全部`context`均执行完任务，`scheduler`才会统一发送停止信号。（该部分实际更复杂，读者可自行补充）
+- **高效的协程同步组件：** 线程同步组件用来同步并发线程的行为，而协程同步组件则是用来同步并发协程的行为，当函数因线程同步组件而阻塞时会导致线程阻塞，但当协程函数因协程同步组件陷入阻塞时只会使协程陷入阻塞并转移执行权，此时线程继续执行下一个任务，保证 CPU 的高利用率。
 
-- **A**：`scheduler::loop()` 给每个 `context` 注入 `stop_cb`。当某个 `context` 判断自己达到“终态”（无任务、无 I/O、无挂起）时调用 `stop_cb`，把对应 `flag` 由 1→0，并把全局活跃计数 `m_stop_token--`。当 `m_stop_token == 0`（全部终态）时，`scheduler::stop_impl()` 广播 `notify_stop()` 给所有 context。实践上 `loop()` 末尾**建议 join 所有 context**，直到线程全部收敛再返回。
+### 可能的优化点
 
-### 5) 调度与负载均衡
+tinyCoro 需要优化的点有很多，主要分为如下：
 
-**Q：任务如何分发到不同的 `context`？**
+- **sqe 消费限制：** tinyCoro 在发起 IO 前会先获取 sqe，而 io_uring 的可用 sqe 是有限制的，如果可用 sqe 消费完那么 tinyCoro 会得到空指针 sqe 并且操作该 sqe 就会引发 core dump，后续可以对此进行优化。
+- **高效的负载均衡：** scheduler 对各个 context 的任务派发逻辑是由 dispatcher 决定的，目前 tinyCoro 仅实现了 round-robin 逻辑的 dispatcher，可以再拓展 dispatcher 的模板类从而实现更高效的负载均衡逻辑。
+- **网络层协议拓展：** tinyCoroLab 默认添加了 tcp 支持，后续会尝试添加 HTTP 和 rpc 支持。
+- **多线程执行引擎优化：** 目前 tinyCoroLab 的多线程执行引擎是有多个 context 组成并由 scheduler 负责任务调度，各个 context 之间彼此独立且均持有一个工作线程和一个 io_uring 实例，这样的设计可以有效避免线程竞争带来的消耗，后续会参考 golang 的 gmp 设计来优化此部分。
 
-- **A**：`scheduler` 内置 `dispatcher`（默认 round-robin）。`submit(handle)` 选出 `ctx_id`，将句柄发给该 context 的 `engine`。我还做了“活跃计数修正”：若一个 context 先前被标记为“终态”，再被分配新任务时会重新把它标记为活跃，并把全局计数 +1，避免向“已终态”的 context 派发任务。
+### 可能的问题
 
-**Q：如果队列满了会怎样？**
-
-- **A**：当前使用 MPMC 的环形队列，极端情况下可能退化为忙等或拒绝入队；后续可以加 backpressure（例如限流、批提交、或在 `submit_task` 上做等待/重试策略）。
-
-### 6) 正确性与并发
-
-**Q：如何避免死等或睡死？**
-
-- **A**：所有需要唤醒的路径都写 eventfd：新任务提交、I/O 完成（内核写）、停止信号（`notify_stop()` 写）。因此 `poll_submit()` 不会睡死。
-   注意 `submit_task()` 必须写 eventfd，否则只有 I/O 才能把线程叫醒。
-
-**Q：io_uring 的线程安全？**
-
-- **A**：io_uring 官方建议一个实例由一个线程驱动；我的实现中 awaiter 构造只从**本线程的 engine** 取 SQE，`submit/wait/peek` 也只在本线程调用。跨线程交互只发生在**任务队列**，它是 MPMC 的。
-
-**Q：异常与返回值如何传递？**
-
-- **A**：通过 `task`/`promise`：`task<T>` 在 promise 容器存值；`task<void>` 在 promise 存 `exception_ptr` 并在 `await_resume()` 重新抛出，表现为“像同步调用那样返回/抛出”。
-
-### 7) 性能 & 对比
-
-**Q：相对 epoll/线程池回调式，优势在哪？**
-
-- **A**：编程模型保持同步风格（可读性与可维护性好）；io_uring 减少 syscalls/context switch；eventfd 作为轻量通知（单次读写亚微秒级）；每个 context 一条“热路径”，减少共享竞争。
-   潜在提升点：批量调度、更智能的 dispatcher（NUMA/负载自适应）、timer/超时 awaiter、work-stealing 等。
-
-### 8) 常见追问 & 建议回答
-
-- **为什么 `poll_submit()` 每轮都调用？**
-   统一睡眠点简化分支；无 I/O 时会睡在 `wait_eventfd()`，但新任务/停止信号会写 eventfd 及时唤醒，不会导致“有任务却不跑”。（如果面试官建议只在 `!empty_io()` 时 `poll`，可以解释成“简单正确优先”的取舍，两种都能工作。）
-- **单 context 场景如何自动停机？**
-   `start()` 缺省注入 `m_stop_cb = request_stop()`；当 `empty_wait_task()` 且队列空时自停，`notify_stop()` 一样会 wakeup，保证不睡死。
-- **提交在 `loop()` 结束后怎么办？**
-   代码里有断言保护（`m_stop_token != 0`），并且 `stop_cb` 只在“真的终态”才把计数减到 0，避免早停后再派发。
+> ### 电梯词（10 秒开场）
+>
+> > tinyCoro 是一个基于 C++20 协程 + io_uring 的异步 I/O 框架。协程用 `task` 做可调度单元，右值提交时 `detach` 把帧释放权交给引擎；每个 `context` 拥有一个 `engine` 和工作线程，`engine` 维护任务队列与 io_uring，事件通知用 eventfd；`scheduler` 负责多 context 的负载分发与统一停机。写法保持同步风格，但实际是异步、事件驱动。
+>
+> ### 1) 架构 & 线程模型
+>
+> **Q：整体架构怎么组织的？**
+>
+> - **A**：`scheduler` 持有 N 个 `context`（默认 CPU 逻辑核数），每个 `context` 一个 `jthread` + 私有 `engine`。`engine` 管任务队列（MPMC）和 io_uring（绑定 eventfd）。任务可跨线程提交；io_uring 的 `submit/wait/peek` 只在**所属线程**调用，避免跨线程驱动 uring 的竞态。
+>
+> **Q：为什么用 `jthread` 而不是 `std::thread`？**
+>
+> - **A**：`jthread` 自带自动 `join` 和 `stop_token` 取消语义，简化了退出与资源收敛。`context::notify_stop()` 用 `request_stop()` + `engine.wake_up(1)` 组合，能立刻唤醒 `poll_submit()` 的阻塞。
+>
+> ### 2) task / 协程语义
+>
+> **Q：`task` 的价值是什么？**
+>
+> - **A**：`task<T>` 是**可调度单元 + 资源所有者**。创建即挂起（`initial_suspend = suspend_always`），调度权交给引擎；`final_suspend` 用自定义 `FinalAwaiter` 恢复父协程，保证“子跑完回到调用点”；右值提交时 `detach()` 把销毁权转交给引擎，`engine.clean()` 只销毁 **detached** 的协程帧。
+>
+> **Q：`detach/clean` 的正确性怎么保证？**
+>
+> - **A**：`detach()` 在 promise 里打 `m_detached=true` 并清空 `task` 的句柄；引擎 `exec_one_task()` 里 `done()` 后调用全局 `clean(h)`，只有 `detached` 才 `destroy()`，避免双删。左值提交不 `detach`，必须保证 task 生命周期覆盖执行。
+>
+> **Q：父子协程如何对称移交？**
+>
+> - **A**：父 `co_await child` 时，`task` awaiter 的 `await_suspend` 记录父句柄并**返回子句柄**（对称移交，子立刻运行）。子到 `final_suspend` 时 `FinalAwaiter::await_suspend` 恢复父；随后引擎看到 `done()` 再按 `detached` 清理子帧。
+>
+> ### 3) I/O 模型（io_uring + eventfd）
+>
+> **Q：一次异步 I/O 从发起到恢复的完整流程？**
+>
+> - **A**：在 awaiter 构造时：`get_free_urs()` 取 SQE → `io_uring_prep_XXX` 填充 → `io_uring_sqe_set_data(io_info)` 绑定回调与句柄 → `add_io_submit()`（`pending++`）。
+>   `context::run()` 进入 `engine.poll_submit()`：把 `pending` 一次性 `submit()` 到内核，`running += pending；pending=0`；`wait_eventfd()` 阻塞直到事件；批量 `peek_batch_cqe()` → `handle_cqe_entry(cqe)` 取 `io_info` → 回调里 `submit_to_context(io_info->handle)` 把协程句柄投回任务队列；引擎随后 `exec_one_task()` 恢复协程，`await_resume()` 返回 I/O 结果。
+>
+> **Q：为什么在 `submit_task` 会写 eventfd 唤醒？I/O 还没完成啊。**
+>
+> - **A**：`poll_submit()` 内部会 `wait_eventfd()` 作为**统一睡眠点**。新任务到来时必须把工作线程唤醒，否则得等到某个 I/O 完成才会醒，计算任务会延迟。写 eventfd 的意义是“有事就醒”，不等 I/O。
+>
+> ### 4) 事件循环 & 停机协议
+>
+> **Q：`context::run()` 的循环策略？**
+>
+> - **A**：每轮先批量执行“当前队列中的任务”（`num_task_schedule()` 次 `exec_one_task()`），然后不论是否有 I/O 都进入 `poll_submit()`，把它作为**唯一睡眠点**：I/O 完成 / 新任务提交 / 停止信号都会通过 eventfd 唤醒，简化空闲等待的分支复杂度。
+>
+> **Q：如何判断可以安全退出？会不会有协程没恢复就退出？**
+>
+> - **A**：退出条件在 `context` 层组合判断：`stop_requested && engine.ready()==false && engine.empty_io()==true && m_wait_cnt==0`。
+>   其中 `m_wait_cnt` 是**挂起引用计数**，例如遇到互斥/条件等待等需要 `register_wait()` / `unregister_wait()`，防止“仍有挂起协程时过早退出”造成泄漏。
+>
+> **Q：多 context 的统一停机由谁负责？**
+>
+> - **A**：`scheduler::loop()` 给每个 `context` 注入 `stop_cb`。当某个 `context` 判断自己达到“终态”（无任务、无 I/O、无挂起）时调用 `stop_cb`，把对应 `flag` 由 1→0，并把全局活跃计数 `m_stop_token--`。当 `m_stop_token == 0`（全部终态）时，`scheduler::stop_impl()` 广播 `notify_stop()` 给所有 context。实践上 `loop()` 末尾**建议 join 所有 context**，直到线程全部收敛再返回。
+>
+> ### 5) 调度与负载均衡
+>
+> **Q：任务如何分发到不同的 `context`？**
+>
+> - **A**：`scheduler` 内置 `dispatcher`（默认 round-robin）。`submit(handle)` 选出 `ctx_id`，将句柄发给该 context 的 `engine`。我还做了“活跃计数修正”：若一个 context 先前被标记为“终态”，再被分配新任务时会重新把它标记为活跃，并把全局计数 +1，避免向“已终态”的 context 派发任务。
+>
+> **Q：如果队列满了会怎样？**
+>
+> - **A**：当前使用 MPMC 的环形队列，极端情况下可能退化为忙等或拒绝入队；后续可以加 backpressure（例如限流、批提交、或在 `submit_task` 上做等待/重试策略）。
+>
+> ### 6) 正确性与并发
+>
+> **Q：如何避免死等或睡死？**
+>
+> - **A**：所有需要唤醒的路径都写 eventfd：新任务提交、I/O 完成（内核写）、停止信号（`notify_stop()` 写）。因此 `poll_submit()` 不会睡死。
+>   注意 `submit_task()` 必须写 eventfd，否则只有 I/O 才能把线程叫醒。
+>
+> **Q：io_uring 的线程安全？**
+>
+> - **A**：io_uring 官方建议一个实例由一个线程驱动；我的实现中 awaiter 构造只从**本线程的 engine** 取 SQE，`submit/wait/peek` 也只在本线程调用。跨线程交互只发生在**任务队列**，它是 MPMC 的。
+>
+> **Q：异常与返回值如何传递？**
+>
+> - **A**：通过 `task`/`promise`：`task<T>` 在 promise 容器存值；`task<void>` 在 promise 存 `exception_ptr` 并在 `await_resume()` 重新抛出，表现为“像同步调用那样返回/抛出”。
+>
+> ### 7) 性能 & 对比
+>
+> **Q：相对 epoll/线程池回调式，优势在哪？**
+>
+> - **A**：编程模型保持同步风格（可读性与可维护性好）；io_uring 减少 syscalls/context switch；eventfd 作为轻量通知（单次读写亚微秒级）；每个 context 一条“热路径”，减少共享竞争。
+>   潜在提升点：批量调度、更智能的 dispatcher（NUMA/负载自适应）、timer/超时 awaiter、work-stealing 等。
+>
+> ### 8) 常见追问 & 建议回答
+>
+> - **为什么 `poll_submit()` 每轮都调用？**
+>   统一睡眠点简化分支；无 I/O 时会睡在 `wait_eventfd()`，但新任务/停止信号会写 eventfd 及时唤醒，不会导致“有任务却不跑”。（如果面试官建议只在 `!empty_io()` 时 `poll`，可以解释成“简单正确优先”的取舍，两种都能工作。）
+> - **单 context 场景如何自动停机？**
+>   `start()` 缺省注入 `m_stop_cb = request_stop()`；当 `empty_wait_task()` 且队列空时自停，`notify_stop()` 一样会 wakeup，保证不睡死。
+> - **提交在 `loop()` 结束后怎么办？**
+>   代码里有断言保护（`m_stop_token != 0`），并且 `stop_cb` 只在“真的终态”才把计数减到 0，避免早停后再派发。

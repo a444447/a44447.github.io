@@ -1,0 +1,40 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0" version="28.2.5">
+  <diagram name="第 1 页" id="t81DVcqyNUs0A69y8U25">
+    <mxGraphModel dx="815" dy="1634" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="rkvtvenk4QgLvdFAY9IJ-1" value="招银网络" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="180" y="80" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="rkvtvenk4QgLvdFAY9IJ-2" value="淘天集团" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="460" y="80" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="rkvtvenk4QgLvdFAY9IJ-3" value="内容:后端开发" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="100" y="150" width="100" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="rkvtvenk4QgLvdFAY9IJ-4" value="内容:终端开发，做客户端" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="590" y="150" width="100" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="rkvtvenk4QgLvdFAY9IJ-6" value="挣钱" style="ellipse;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="270" y="-80" width="60" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="rkvtvenk4QgLvdFAY9IJ-7" value="离家近" style="ellipse;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="350" y="-10" width="60" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="rkvtvenk4QgLvdFAY9IJ-8" value="稳定" style="ellipse;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="430" y="-80" width="60" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="rkvtvenk4QgLvdFAY9IJ-9" value="薪资:15k*12+90k&lt;div&gt;税后20w?&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="100" y="210" width="110" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="rkvtvenk4QgLvdFAY9IJ-10" value="税后35w?" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="590" y="220" width="100" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="rkvtvenk4QgLvdFAY9IJ-13" value="成都如果不去互联网薪资水平大概30w及以下" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+          <mxGeometry x="230" y="50" width="285" height="20" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
